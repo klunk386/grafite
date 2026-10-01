@@ -2,9 +2,8 @@
   <img src="logo/grafite-logo.png"
        alt="GRAFITE logo"
        width="260">
+  <h1 align="center">GRAFITE</h1>
 </p>
-
-<h1 align="center">GRAFITE</h1>
 
 <p align="center">
   <strong>General-purpose Real-time Audio Framework</strong>
