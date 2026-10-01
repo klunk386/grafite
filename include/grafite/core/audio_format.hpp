@@ -13,3 +13,18 @@
 // GNU Lesser General Public License. See the LICENSE file for details.
 // =============================================================================
 
+#ifndef GRAFITE_CORE_AUDIO_FORMAT_HPP
+#define GRAFITE_CORE_AUDIO_FORMAT_HPP
+
+#include "grafite/core/types.hpp"
+
+namespace grafite {
+
+struct AudioFormat {
+    double sample_rate = 0.0;
+    ChannelCount channels = 0;
+};
+
+}  // namespace grafite
+
+#endif  // GRAFITE_CORE_AUDIO_FORMAT_HPP
