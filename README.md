@@ -1,7 +1,7 @@
 <p align="center">
   <img src="logo/grafite-logo.png"
        alt="GRAFITE logo"
-       width="320">
+       width="280">
 </p>
 
 <h1 align="center">GRAFITE</h1>
