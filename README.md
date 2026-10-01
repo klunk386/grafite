@@ -1,17 +1,8 @@
-<!--
-GRAFITE logo placeholder.
-
-When the project logo is available, place it for example at:
-    docs/assets/grafite-logo.svg
-
-Then uncomment and adjust the block below.
-
 <p align="center">
   <img src="logo/grafite-logo.png"
        alt="GRAFITE logo"
        width="320">
 </p>
--->
 
 <h1 align="center">GRAFITE</h1>
 
