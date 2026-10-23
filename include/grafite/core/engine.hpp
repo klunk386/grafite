@@ -31,6 +31,23 @@ namespace grafite {
 /// such as JACK, ALSA, or file backends are responsible for supplying the
 /// block size and invoking process().
 ///
+/// Real-time execution contract:
+/// - Construct the Engine and resolve external audio buffer views before
+///   starting the audio callback.
+/// - For each block, clear external inputs (unless every sample will be
+///   written), fill the first frames samples of each input channel, call
+///   process(frames), and read the first frames output samples.
+/// - frames must be in [0, spec().max_block_size]. A zero-frame call does
+///   not advance the timeline or modify processing buffers.
+/// - Cached buffer views remain valid across processing and reset, as well
+///   as moves that transfer their owning graph. They become invalid when
+///   that graph's storage is destroyed or replaced.
+/// - Do not call reset(), move or destroy the Engine, or modify its graph
+///   concurrently with processing. The caller must serialize access.
+/// - Buffer lookup methods may throw and must not run in the callback.
+///   clear_audio_inputs() and process() perform no dynamic allocations or
+///   structural lookups. Nodes must independently obey real-time rules.
+///
 /// Graph compilation and replacement are intentionally outside the initial
 /// Engine contract. This keeps the real-time execution layer independent
 /// from graph construction and backend-specific lifecycle management.
