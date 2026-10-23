@@ -300,6 +300,68 @@ void test_external_audio_io()
     assert(engine.frame_position() == 192);
 }
 
+void test_external_audio_views_after_engine_move()
+{
+    grafite::Graph graph;
+
+    const auto input_id = graph.add_audio_input("Input", 2);
+    const auto output_id = graph.add_audio_output("Output", 2);
+    const auto silent_id = graph.add_audio_output("Silent", 1);
+    auto& gain = graph.add_node<StereoGainNode>();
+
+    graph.connect(input_id, gain, grafite::AudioInputIndex{0});
+    graph.connect(gain, grafite::AudioOutputIndex{0}, output_id);
+
+    auto compiled = std::move(graph).compile(make_spec());
+    grafite::Engine engine(std::move(compiled));
+
+    auto input = engine.audio_input_buffer(input_id);
+    const auto output = engine.audio_output_buffer(output_id);
+    const auto silent = engine.audio_output_buffer(silent_id);
+
+    auto* const input_data = input.channel(0);
+    const auto* const output_data = output.channel(0);
+    const auto* const silent_data = silent.channel(0);
+
+    // Cached views must survive Engine move construction.
+    grafite::Engine moved(std::move(engine));
+
+    assert(moved.audio_input_buffer(input_id).channel(0) == input_data);
+    assert(moved.audio_output_buffer(output_id).channel(0) == output_data);
+    assert(moved.audio_output_buffer(silent_id).channel(0) == silent_data);
+
+    moved.clear_audio_inputs(64);
+    input(0, 0) = 0.75F;
+    input(1, 1) = -0.5F;
+    moved.process(64);
+
+    assert(output(0, 0) == 0.375F);
+    assert(output(1, 1) == -0.25F);
+    assert(output(0, 1) == 0.0F);
+    assert(silent(0, 0) == 0.0F);
+    assert(moved.frame_position() == 64);
+
+    // Move assignment must preserve views of the incoming graph.
+    auto destination = make_engine();
+    destination = std::move(moved);
+
+    assert(destination.audio_input_buffer(input_id).channel(0) ==
+           input_data);
+    assert(destination.audio_output_buffer(output_id).channel(0) ==
+           output_data);
+    assert(destination.audio_output_buffer(silent_id).channel(0) ==
+           silent_data);
+
+    destination.clear_audio_inputs(32);
+    input(0, 0) = -1.0F;
+    destination.process(32);
+
+    assert(output(0, 0) == -0.5F);
+    assert(output(1, 1) == 0.0F);
+    assert(silent(0, 0) == 0.0F);
+    assert(destination.frame_position() == 96);
+}
+
 }  // namespace
 
 
@@ -318,6 +380,7 @@ int main()
 
     test_engine_move();
     test_external_audio_io();
+    test_external_audio_views_after_engine_move();
 
     return 0;
 }
