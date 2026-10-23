@@ -409,18 +409,61 @@ void test_external_input_processing()
     });
 }
 
-void test_external_output_compilation_guard()
+class ConstantAudioNode final : public grafite::Node {
+public:
+    ConstantAudioNode()
+        : output_(add_audio_output(1))
+    {
+    }
+
+    void process(
+        const grafite::ProcessContext& context
+    ) noexcept override
+    {
+        auto output = context.audio_output(output_);
+        for (grafite::FrameCount i = 0; i < context.frames(); ++i) {
+            output(0, i) = 0.625F;
+        }
+    }
+
+private:
+    grafite::AudioOutputIndex output_;
+};
+
+void test_external_output_processing()
 {
     grafite::Graph graph;
-    (void)graph.add_audio_output("Output", 1);
+    const auto output_id = graph.add_audio_output("Main", 1);
+    const auto silent_id = graph.add_audio_output("Unused", 2);
+    auto& source = graph.add_node<ConstantAudioNode>();
+    graph.connect(source, grafite::AudioOutputIndex{0}, output_id);
 
     grafite::ProcessSpec spec;
     spec.sample_rate = 48000.0;
     spec.max_block_size = 256;
 
-    expect_exception<std::logic_error>([&] {
-        auto compiled = std::move(graph).compile(spec);
-        (void)compiled;
+    auto compiled = std::move(graph).compile(spec);
+    auto output = compiled.audio_output_buffer(output_id);
+    auto silent = compiled.audio_output_buffer(silent_id);
+    assert(output.channels() == 1);
+    assert(output.frames() == 256);
+    assert(silent.channels() == 2);
+
+    compiled.process(128, 0);
+    assert(output(0, 0) == 0.625F);
+    assert(output(0, 127) == 0.625F);
+    assert(silent(0, 0) == 0.0F);
+    assert(silent(1, 127) == 0.0F);
+
+    compiled.process(64, 128);
+    assert(output(0, 0) == 0.625F);
+    assert(output(0, 63) == 0.625F);
+    assert(silent(0, 63) == 0.0F);
+
+    expect_exception<std::invalid_argument>([&] {
+        (void)compiled.audio_output_buffer(
+            grafite::GraphAudioOutputId{9999}
+        );
     });
 }
 
@@ -433,7 +476,7 @@ int main()
     test_invalid_external_connections();
     test_input_connection_exclusivity();
     test_external_input_processing();
-    test_external_output_compilation_guard();
+    test_external_output_processing();
 
     return 0;
 }
