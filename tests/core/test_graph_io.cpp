@@ -467,6 +467,98 @@ void test_external_output_processing()
     });
 }
 
+class GainAudioNode final : public grafite::Node {
+public:
+    explicit GainAudioNode(grafite::Sample gain)
+        : input_(add_audio_input(2)),
+          output_(add_audio_output(2)),
+          gain_(gain)
+    {
+    }
+
+    void process(
+        const grafite::ProcessContext& context
+    ) noexcept override
+    {
+        const auto input = context.audio_input(input_);
+        auto output = context.audio_output(output_);
+
+        for (grafite::ChannelCount channel = 0;
+             channel < 2; ++channel) {
+            for (grafite::FrameCount frame = 0;
+                 frame < context.frames(); ++frame) {
+                output(channel, frame) =
+                    input(channel, frame) * gain_;
+            }
+        }
+    }
+
+private:
+    grafite::AudioInputIndex input_;
+    grafite::AudioOutputIndex output_;
+    grafite::Sample gain_;
+};
+
+void test_external_audio_end_to_end()
+{
+    grafite::Graph graph;
+    const auto input_id = graph.add_audio_input("Stereo In", 2);
+    const auto output_id = graph.add_audio_output("Stereo Out", 2);
+    const auto silent_id = graph.add_audio_output("Unconnected", 1);
+
+    auto& first = graph.add_node<GainAudioNode>(0.5F);
+    auto& second = graph.add_node<GainAudioNode>(0.25F);
+    graph.connect(input_id, first, grafite::AudioInputIndex{0});
+    graph.connect(
+        first,
+        grafite::AudioOutputIndex{0},
+        second,
+        grafite::AudioInputIndex{0}
+    );
+    graph.connect(second, grafite::AudioOutputIndex{0}, output_id);
+
+    grafite::ProcessSpec spec;
+    spec.sample_rate = 48000.0;
+    spec.max_block_size = 256;
+
+    auto compiled = std::move(graph).compile(spec);
+    auto input = compiled.audio_input_buffer(input_id);
+    const auto output = compiled.audio_output_buffer(output_id);
+    const auto silent = compiled.audio_output_buffer(silent_id);
+
+    assert(input.channels() == 2);
+    assert(output.channels() == 2);
+    assert(input.channel_stride() == 256);
+    assert(output.channel_stride() == 256);
+
+    // Process two variable-size blocks through both DSP nodes.
+    const grafite::FrameCount block_sizes[] = {128, 64};
+    grafite::FrameIndex position = 0;
+
+    for (const auto frames : block_sizes) {
+        compiled.clear_audio_inputs(frames);
+
+        // Leave some samples unwritten to verify silence propagation.
+        for (grafite::FrameCount frame = 0;
+             frame < frames / 2; ++frame) {
+            input(0, frame) = 0.8F;
+            input(1, frame) = -0.4F;
+        }
+
+        compiled.process(frames, position);
+
+        for (grafite::FrameCount frame = 0;
+             frame < frames; ++frame) {
+            const bool written = frame < frames / 2;
+            assert(output(0, frame) == (written ? 0.1F : 0.0F));
+            assert(output(1, frame) == (written ? -0.05F : 0.0F));
+            assert(silent(0, frame) == 0.0F);
+        }
+
+        position += frames;
+    }
+}
+
 }  // namespace
 
 int main()
@@ -477,6 +569,7 @@ int main()
     test_input_connection_exclusivity();
     test_external_input_processing();
     test_external_output_processing();
+    test_external_audio_end_to_end();
 
     return 0;
 }
