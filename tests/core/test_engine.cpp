@@ -225,6 +225,81 @@ void test_engine_move()
     assert(moved.frame_position() == 192);
 }
 
+class StereoGainNode final : public grafite::Node {
+public:
+    StereoGainNode()
+        : input_(add_audio_input(2)),
+          output_(add_audio_output(2))
+    {
+    }
+
+    void process(
+        const grafite::ProcessContext& context
+    ) noexcept override
+    {
+        const auto input = context.audio_input(input_);
+        auto output = context.audio_output(output_);
+
+        for (grafite::ChannelCount channel = 0;
+             channel < 2; ++channel) {
+            for (grafite::FrameCount frame = 0;
+                 frame < context.frames(); ++frame) {
+                output(channel, frame) =
+                    input(channel, frame) * 0.5F;
+            }
+        }
+    }
+
+private:
+    grafite::AudioInputIndex input_;
+    grafite::AudioOutputIndex output_;
+};
+
+
+void test_external_audio_io()
+{
+    grafite::Graph graph;
+
+    const auto input_id = graph.add_audio_input("Input", 2);
+    const auto output_id = graph.add_audio_output("Output", 2);
+    auto& gain = graph.add_node<StereoGainNode>();
+
+    graph.connect(input_id, gain, grafite::AudioInputIndex{0});
+    graph.connect(gain, grafite::AudioOutputIndex{0}, output_id);
+
+    auto compiled = std::move(graph).compile(make_spec());
+    grafite::Engine engine(std::move(compiled));
+
+    auto input = engine.audio_input_buffer(input_id);
+    const auto output = engine.audio_output_buffer(output_id);
+
+    assert(input.channels() == 2);
+    assert(output.channels() == 2);
+    assert(input.frames() == 512);
+    assert(output.frames() == 512);
+
+    engine.clear_audio_inputs(128);
+    input(0, 0) = 0.5F;
+    input(1, 0) = -0.5F;
+    input(0, 127) = 1.0F;
+    engine.process(128);
+
+    assert(output(0, 0) == 0.25F);
+    assert(output(1, 0) == -0.25F);
+    assert(output(0, 1) == 0.0F);
+    assert(output(0, 127) == 0.5F);
+    assert(engine.frame_position() == 128);
+
+    engine.clear_audio_inputs(64);
+    input(1, 1) = 0.25F;
+    engine.process(64);
+
+    assert(output(0, 0) == 0.0F);
+    assert(output(1, 1) == 0.125F);
+    assert(output(0, 63) == 0.0F);
+    assert(engine.frame_position() == 192);
+}
+
 }  // namespace
 
 
@@ -242,6 +317,7 @@ int main()
     test_reset_propagates_to_nodes();
 
     test_engine_move();
+    test_external_audio_io();
 
     return 0;
 }
