@@ -558,6 +558,56 @@ void test_external_audio_end_to_end()
     }
 }
 
+void test_external_output_fan_out()
+{
+    grafite::Graph graph;
+
+    const auto main_id = graph.add_audio_output("Main", 1);
+    const auto monitor_id = graph.add_audio_output("Monitor", 1);
+    const auto recorder_id = graph.add_audio_output("Recorder", 1);
+    auto& source = graph.add_node<ConstantAudioNode>();
+
+    // Three external destinations share one DSP output port.
+    graph.connect(source, grafite::AudioOutputIndex{0}, main_id);
+    graph.connect(source, grafite::AudioOutputIndex{0}, monitor_id);
+    graph.connect(source, grafite::AudioOutputIndex{0}, recorder_id);
+
+    grafite::ProcessSpec spec;
+    spec.sample_rate = 48000.0;
+    spec.max_block_size = 256;
+
+    auto compiled = std::move(graph).compile(spec);
+    const auto main = compiled.audio_output_buffer(main_id);
+    const auto monitor = compiled.audio_output_buffer(monitor_id);
+    const auto recorder = compiled.audio_output_buffer(recorder_id);
+
+    assert(main.channels() == 1);
+    assert(main.frames() == 256);
+    assert(main.channel(0) == monitor.channel(0));
+    assert(main.channel(0) == recorder.channel(0));
+    assert(main.channel_stride() == monitor.channel_stride());
+    assert(main.channel_stride() == recorder.channel_stride());
+
+    // Reuse the cached views across consecutive variable-size blocks.
+    const grafite::FrameCount block_sizes[] = {128, 64, 256};
+    grafite::FrameIndex position = 0;
+
+    for (const auto frames : block_sizes) {
+        compiled.process(frames, position);
+
+        for (grafite::FrameCount frame = 0;
+             frame < frames; ++frame) {
+            assert(main(0, frame) == 0.625F);
+            assert(monitor(0, frame) == 0.625F);
+            assert(recorder(0, frame) == 0.625F);
+        }
+
+        assert(main.channel(0) == monitor.channel(0));
+        assert(main.channel(0) == recorder.channel(0));
+        position += frames;
+    }
+}
+
 }  // namespace
 
 int main()
@@ -569,6 +619,7 @@ int main()
     test_external_input_processing();
     test_external_output_processing();
     test_external_audio_end_to_end();
+    test_external_output_fan_out();
 
     return 0;
 }
