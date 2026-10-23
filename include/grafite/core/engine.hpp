@@ -71,6 +71,10 @@ public:
     /// Returns a writable view of a preallocated external audio input.
     ///
     /// Resolve the identifier during setup, outside the audio callback.
+    /// The view refers to graph-owned storage and remains valid across
+    /// process() calls while the Engine owns that storage. Clear inputs
+    /// before filling each block; only the first frames samples of each
+    /// channel are consumed by process(frames).
     /// Throws std::invalid_argument for an unknown input identifier.
     [[nodiscard]]
     AudioBufferView audio_input_buffer(GraphAudioInputId id)
@@ -81,7 +85,10 @@ public:
     /// Returns a read-only view of a graph audio output.
     ///
     /// Resolve the identifier during setup, outside the audio callback.
-    /// Only the first frames samples are valid after process(frames).
+    /// The view refers to graph-owned storage and remains valid across
+    /// process() calls while the Engine owns that storage. Only the first
+    /// frames samples of each channel contain the current block's output
+    /// after process(frames).
     /// Throws std::invalid_argument for an unknown output identifier.
     [[nodiscard]]
     ConstAudioBufferView audio_output_buffer(
@@ -93,8 +100,9 @@ public:
 
     /// Clears external input samples for the next processing block.
     ///
-    /// Call before filling external inputs. Unwritten samples remain
-    /// silent. This method does not allocate memory.
+    /// Call before filling external inputs for each block. Unwritten
+    /// samples remain silent. frames must not exceed spec().max_block_size.
+    /// This method does not allocate memory.
     void clear_audio_inputs(FrameCount frames) noexcept
     {
         graph_.clear_audio_inputs(frames);
