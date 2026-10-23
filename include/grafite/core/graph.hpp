@@ -439,10 +439,12 @@ public:
         const ProcessSpec& spec
     ) &&
     {
-        if (!audio_ports_.empty()) {
-            throw std::logic_error(
-                "External graph audio ports are not yet compiled"
-            );
+        for (const auto& port : audio_ports_) {
+            if (port.direction == GraphPortDirection::output) {
+                throw std::logic_error(
+                    "External graph audio outputs are not yet compiled"
+                );
+            }
         }
 
         const std::size_t count = nodes_.size();
