@@ -129,6 +129,20 @@ public:
         }
     }
 
+    /// Returns a writable view of a preallocated external audio input.
+    ///
+    /// Resolve the input identifier during setup, outside the real-time
+    /// callback. The returned view remains valid while this graph owns its
+    /// buffers, including across process() calls. Only the first frames
+    /// samples of each channel are consumed for a block of that size.
+    ///
+    /// Throws std::invalid_argument if the input identifier is unknown.
+    [[nodiscard]]
+    AudioBufferView audio_input_buffer(GraphAudioInputId id)
+    {
+        return external_audio_input_resource(id).view();
+    }
+
     /// Resets the internal processing state of all nodes.
     ///
     /// This method does not alter graph structure, runtime bindings, or the
