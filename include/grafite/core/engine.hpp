@@ -68,6 +68,38 @@ public:
         return graph_;
     }
 
+    /// Returns a writable view of a preallocated external audio input.
+    ///
+    /// Resolve the identifier during setup, outside the audio callback.
+    /// Throws std::invalid_argument for an unknown input identifier.
+    [[nodiscard]]
+    AudioBufferView audio_input_buffer(GraphAudioInputId id)
+    {
+        return graph_.audio_input_buffer(id);
+    }
+
+    /// Returns a read-only view of a graph audio output.
+    ///
+    /// Resolve the identifier during setup, outside the audio callback.
+    /// Only the first frames samples are valid after process(frames).
+    /// Throws std::invalid_argument for an unknown output identifier.
+    [[nodiscard]]
+    ConstAudioBufferView audio_output_buffer(
+        GraphAudioOutputId id
+    ) const
+    {
+        return graph_.audio_output_buffer(id);
+    }
+
+    /// Clears external input samples for the next processing block.
+    ///
+    /// Call before filling external inputs. Unwritten samples remain
+    /// silent. This method does not allocate memory.
+    void clear_audio_inputs(FrameCount frames) noexcept
+    {
+        graph_.clear_audio_inputs(frames);
+    }
+
     /// Processes one block and advances the absolute frame position.
     ///
     /// frames must not exceed the maximum block size of the compiled graph.
