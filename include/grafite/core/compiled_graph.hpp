@@ -16,6 +16,7 @@
 #ifndef GRAFITE_CORE_COMPILED_GRAPH_HPP
 #define GRAFITE_CORE_COMPILED_GRAPH_HPP
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -132,9 +133,10 @@ public:
     /// Returns a writable view of a preallocated external audio input.
     ///
     /// Resolve the input identifier during setup, outside the real-time
-    /// callback. The returned view remains valid while this graph owns its
-    /// buffers, including across process() calls. Only the first frames
-    /// samples of each channel are consumed for a block of that size.
+    /// callback. The view refers to storage owned by this graph and
+    /// remains valid across process() calls while the graph is alive.
+    /// For a block of size frames, only the first frames samples in each
+    /// channel are consumed. Clear inputs before writing each new block.
     ///
     /// Throws std::invalid_argument if the input identifier is unknown.
     [[nodiscard]]
@@ -146,10 +148,12 @@ public:
     /// Returns a read-only view of a graph audio output.
     ///
     /// The view references a node output buffer directly, without copying.
-    /// Read its first frames samples after process(frames, ...) completes.
-    /// Unconnected graph outputs reference a preallocated silent buffer.
-    /// Resolve identifiers outside the real-time callback. Throws for an
-    /// unknown output identifier.
+    /// After process(frames, ...) completes, only the first frames
+    /// samples of each channel contain the current block's output.
+    /// The view remains valid while the graph owns its buffers, including
+    /// across process() calls. Unconnected outputs reference preallocated
+    /// silence. Resolve identifiers outside the real-time callback.
+    /// Throws std::invalid_argument for an unknown output identifier.
     [[nodiscard]]
     ConstAudioBufferView audio_output_buffer(
         GraphAudioOutputId id
@@ -168,7 +172,7 @@ public:
 
     /// Clears the valid portion of all external audio input buffers.
     ///
-    /// Call this before filling inputs for a processing block. Unwritten
+    /// Call this before filling inputs for each processing block. Unwritten
     /// samples then remain silent, including on partially filled inputs.
     /// process() deliberately does not clear external inputs, because doing
     /// so would discard samples already supplied by the audio backend.
