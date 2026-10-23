@@ -42,6 +42,42 @@ public:
     }
 };
 
+class CaptureAudioNode final : public grafite::Node {
+public:
+    CaptureAudioNode()
+        : input_(add_audio_input(1))
+    {
+    }
+
+    void process(
+        const grafite::ProcessContext& context
+    ) noexcept override
+    {
+        const auto input = context.audio_input(input_);
+        frames_ = context.frames();
+        for (grafite::FrameCount i = 0; i < frames_; ++i) {
+            samples_[i] = input(0, i);
+        }
+    }
+
+    [[nodiscard]]
+    grafite::Sample sample(grafite::FrameCount index) const noexcept
+    {
+        return samples_[index];
+    }
+
+    [[nodiscard]]
+    grafite::FrameCount frames() const noexcept
+    {
+        return frames_;
+    }
+
+private:
+    grafite::AudioInputIndex input_;
+    grafite::Sample samples_[256]{};
+    grafite::FrameCount frames_ = 0;
+};
+
 template <typename Exception, typename Function>
 void expect_exception(Function&& function)
 {
@@ -330,11 +366,53 @@ void test_input_connection_exclusivity()
     }
 }
 
-void test_compilation_guard()
+void test_external_input_processing()
 {
     grafite::Graph graph;
+    const auto input_id = graph.add_audio_input("Input", 1);
+    auto& sink = graph.add_node<CaptureAudioNode>();
+    graph.connect(input_id, sink, grafite::AudioInputIndex{0});
 
-    (void)graph.add_audio_input("Input", 1);
+    grafite::ProcessSpec spec;
+    spec.sample_rate = 48000.0;
+    spec.max_block_size = 256;
+
+    auto compiled = std::move(graph).compile(spec);
+    auto input = compiled.audio_input_buffer(input_id);
+    assert(input.channels() == 1);
+    assert(input.frames() == 256);
+
+    compiled.clear_audio_inputs(128);
+    input(0, 0) = 0.25F;
+    input(0, 127) = 0.75F;
+    compiled.process(128, 0);
+
+    const auto& captured =
+        static_cast<const CaptureAudioNode&>(compiled.node(0));
+    assert(captured.frames() == 128);
+    assert(captured.sample(0) == 0.25F);
+    assert(captured.sample(1) == 0.0F);
+    assert(captured.sample(127) == 0.75F);
+
+    compiled.clear_audio_inputs(64);
+    input(0, 1) = 0.5F;
+    compiled.process(64, 128);
+    assert(captured.frames() == 64);
+    assert(captured.sample(0) == 0.0F);
+    assert(captured.sample(1) == 0.5F);
+    assert(captured.sample(63) == 0.0F);
+
+    expect_exception<std::invalid_argument>([&] {
+        (void)compiled.audio_input_buffer(
+            grafite::GraphAudioInputId{9999}
+        );
+    });
+}
+
+void test_external_output_compilation_guard()
+{
+    grafite::Graph graph;
+    (void)graph.add_audio_output("Output", 1);
 
     grafite::ProcessSpec spec;
     spec.sample_rate = 48000.0;
@@ -354,7 +432,8 @@ int main()
     test_external_connections();
     test_invalid_external_connections();
     test_input_connection_exclusivity();
-    test_compilation_guard();
+    test_external_input_processing();
+    test_external_output_compilation_guard();
 
     return 0;
 }
