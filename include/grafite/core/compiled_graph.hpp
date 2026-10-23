@@ -143,6 +143,33 @@ public:
         return external_audio_input_resource(id).view();
     }
 
+    /// Clears the valid portion of all external audio input buffers.
+    ///
+    /// Call this before filling inputs for a processing block. Unwritten
+    /// samples then remain silent, including on partially filled inputs.
+    /// process() deliberately does not clear external inputs, because doing
+    /// so would discard samples already supplied by the audio backend.
+    ///
+    /// frames must not exceed the compiled maximum block size. This method
+    /// does not allocate memory or perform structural graph lookups.
+    void clear_audio_inputs(FrameCount frames) noexcept
+    {
+        assert(frames <= spec_.max_block_size);
+
+        for (auto& resource : external_audio_inputs_) {
+            auto view = resource.buffer->view();
+
+            for (ChannelCount channel = 0;
+                 channel < view.channels(); ++channel) {
+                std::fill_n(
+                    view.channel(channel),
+                    frames,
+                    Sample{0}
+                );
+            }
+        }
+    }
+
     /// Resets the internal processing state of all nodes.
     ///
     /// This method does not alter graph structure, runtime bindings, or the
