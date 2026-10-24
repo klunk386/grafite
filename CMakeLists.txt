@@ -212,4 +212,46 @@ if(GRAFITE_BUILD_TESTS)
         COMMAND test_wav_writer
     )
 
+    add_executable(
+        test_wav_gain
+        tests/io/test_wav_gain.cpp
+    )
+
+    target_include_directories(
+        test_wav_gain
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/examples
+    )
+
+    target_link_libraries(
+        test_wav_gain
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME wav_gain
+        COMMAND test_wav_gain
+    )
+
+
+endif()
+
+# -----------------------------------------------------------------------------
+# Offline audio example
+# -----------------------------------------------------------------------------
+
+option(GRAFITE_BUILD_EXAMPLES "Build GRAFITE examples" ON)
+
+if(GRAFITE_BUILD_EXAMPLES)
+    add_executable(
+        grafite_wav_gain
+        examples/wav_gain.cpp
+    )
+
+    target_link_libraries(
+        grafite_wav_gain
+        PRIVATE
+            grafite_core
+    )
 endif()
