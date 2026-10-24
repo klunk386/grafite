@@ -196,4 +196,20 @@ if(GRAFITE_BUILD_TESTS)
         COMMAND test_wav_reader
     )
 
+    add_executable(
+        test_wav_writer
+        tests/io/test_wav_writer.cpp
+    )
+
+    target_link_libraries(
+        test_wav_writer
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME wav_writer
+        COMMAND test_wav_writer
+    )
+
 endif()
