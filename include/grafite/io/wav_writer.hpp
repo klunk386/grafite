@@ -45,7 +45,7 @@ public:
           sample_rate_(sample_rate)
     {
         if (channels == 0 ||
-            channels > std::numeric_limits<std::uint16_t>::max() ||
+            channels > std::numeric_limits<std::uint16_t>::max() / 2 ||
             sample_rate == 0 ||
             static_cast<std::uint64_t>(sample_rate) * channels * 2 >
                 std::numeric_limits<std::uint32_t>::max()) {
