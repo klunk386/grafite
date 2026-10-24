@@ -68,7 +68,15 @@ void test_stereo_round_trip()
         buffer(0, 2) = 0.25F;
         buffer(1, 2) = -0.25F;
         writer.write_frames(buffer.view(), 2);
-        writer.write_frames(buffer.view(), 1);
+
+        const auto view = buffer.view();
+        grafite::ConstAudioBufferView final_frame(
+            view.channel(0) + 2,
+            view.channels(),
+            1,
+            view.channel_stride()
+        );
+        writer.write_frames(final_frame, 1);
 
         assert(writer.frames_written() == 3);
         writer.close();
