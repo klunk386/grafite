@@ -180,4 +180,20 @@ if(GRAFITE_BUILD_TESTS)
         COMMAND test_graph_io
     )
 
+    add_executable(
+        test_wav_reader
+        tests/io/test_wav_reader.cpp
+    )
+
+    target_link_libraries(
+        test_wav_reader
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME wav_reader
+        COMMAND test_wav_reader
+    )
+
 endif()
