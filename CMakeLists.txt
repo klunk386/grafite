@@ -229,6 +229,22 @@ if(GRAFITE_BUILD_TESTS)
     )
 
     add_executable(
+        test_planar_output_renderer
+        tests/io/test_planar_output_renderer.cpp
+    )
+
+    target_link_libraries(
+        test_planar_output_renderer
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME planar_output_renderer
+        COMMAND test_planar_output_renderer
+    )
+
+    add_executable(
         test_wav_gain
         tests/io/test_wav_gain.cpp
     )
