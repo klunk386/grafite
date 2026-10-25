@@ -23,11 +23,12 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "grafite/core/engine.hpp"
 #include "grafite/core/graph.hpp"
-#include "grafite/io/wav_reader.hpp"
-#include "grafite/io/wav_writer.hpp"
+#include "grafite/io/engine_audio_processor.hpp"
+#include "grafite/io/file_audio_backend.hpp"
 
 namespace grafite::examples {
 
@@ -85,48 +86,34 @@ inline void process_wav_gain(
         );
     }
 
-    io::WavReader reader(input_path);
+    io::FileAudioBackend backend(input_path);
 
     Graph graph;
     const auto input_id = graph.add_audio_input(
-        "Input", reader.channels()
+        "Input", backend.channels()
     );
     const auto output_id = graph.add_audio_output(
-        "Output", reader.channels()
+        "Output", backend.channels()
     );
     auto& gain_node = graph.add_node<GainNode>(
-        reader.channels(), gain
+        backend.channels(), gain
     );
 
     graph.connect(input_id, gain_node, AudioInputIndex{0});
     graph.connect(gain_node, AudioOutputIndex{0}, output_id);
 
     ProcessSpec spec;
-    spec.sample_rate = reader.sample_rate();
-    spec.max_block_size = 256;
+    spec.sample_rate = backend.sample_rate();
+    spec.max_block_size = backend.block_size();
 
     Engine engine(std::move(graph).compile(spec));
-    const auto input = engine.audio_input_buffer(input_id);
-    const auto output = engine.audio_output_buffer(output_id);
-
-    io::WavWriter writer(
-        output_path, reader.channels(), reader.sample_rate()
+    io::EngineAudioProcessor processor(
+        engine,
+        std::vector<GraphAudioInputId>{input_id},
+        std::vector<GraphAudioOutputId>{output_id}
     );
 
-    while (true) {
-        engine.clear_audio_inputs(spec.max_block_size);
-        const auto frames = reader.read_frames(
-            input, spec.max_block_size
-        );
-        if (frames == 0) {
-            break;
-        }
-
-        engine.process(frames);
-        writer.write_frames(output, frames);
-    }
-
-    writer.close();
+    backend.run(processor, output_path);
 }
 
 }  // namespace grafite::examples
