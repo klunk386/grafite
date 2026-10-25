@@ -271,3 +271,24 @@ if(GRAFITE_BUILD_EXAMPLES)
             grafite_core
     )
 endif()
+
+# -----------------------------------------------------------------------------
+# Optional native CoreAudio probe (macOS only)
+# -----------------------------------------------------------------------------
+
+option(GRAFITE_BUILD_COREAUDIO "Build native CoreAudio components" ON)
+
+if(APPLE AND GRAFITE_BUILD_COREAUDIO AND GRAFITE_BUILD_EXAMPLES)
+    add_executable(
+        grafite_coreaudio_probe
+        examples/coreaudio_probe.cpp
+    )
+
+    target_link_libraries(
+        grafite_coreaudio_probe
+        PRIVATE
+            grafite_core
+            "-framework AudioToolbox"
+            "-framework CoreAudio"
+    )
+endif()
