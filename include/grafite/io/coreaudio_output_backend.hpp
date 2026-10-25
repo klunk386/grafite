@@ -29,6 +29,7 @@
 
 #include "grafite/core/audio_buffer.hpp"
 #include "grafite/io/audio_processor.hpp"
+#include "grafite/io/planar_output_renderer.hpp"
 
 namespace grafite::io {
 
@@ -47,7 +48,8 @@ public:
     )
         : processor_(processor),
           max_block_size_(max_block_size),
-          output_(2, max_block_size)
+          output_(2, max_block_size),
+          renderer_(processor_, output_)
     {
         if (!std::isfinite(sample_rate) || sample_rate <= 0.0 ||
             max_block_size == 0) {
@@ -238,30 +240,9 @@ private:
             data->mBuffers[1].mData
         );
 
-        FrameCount position = 0;
-        while (position < frames) {
-            const auto count = std::min(
-                self.max_block_size_,
-                static_cast<FrameCount>(frames) - position
-            );
-
-            std::array<AudioBufferView, 1> outputs{
-                self.output_.view()
-            };
-            self.processor_.process({}, outputs, count);
-
-            std::copy_n(
-                self.output_.channel(0),
-                count,
-                destination_left + position
-            );
-            std::copy_n(
-                self.output_.channel(1),
-                count,
-                destination_right + position
-            );
-            position += count;
-        }
+        self.renderer_.render(
+            destination_left, destination_right, frames
+        );
 
         return noErr;
     }
@@ -269,6 +250,7 @@ private:
     AudioProcessor& processor_;
     FrameCount max_block_size_;
     AudioBuffer output_;
+    PlanarOutputRenderer renderer_;
     AudioComponentInstance unit_ = nullptr;
     bool initialized_ = false;
     bool running_ = false;
