@@ -225,6 +225,248 @@ void test_engine_move()
     assert(moved.frame_position() == 192);
 }
 
+class StereoGainNode final : public grafite::Node {
+public:
+    StereoGainNode()
+        : input_(add_audio_input(2)),
+          output_(add_audio_output(2))
+    {
+    }
+
+    void process(
+        const grafite::ProcessContext& context
+    ) noexcept override
+    {
+        const auto input = context.audio_input(input_);
+        auto output = context.audio_output(output_);
+
+        for (grafite::ChannelCount channel = 0;
+             channel < 2; ++channel) {
+            for (grafite::FrameCount frame = 0;
+                 frame < context.frames(); ++frame) {
+                output(channel, frame) =
+                    input(channel, frame) * 0.5F;
+            }
+        }
+    }
+
+private:
+    grafite::AudioInputIndex input_;
+    grafite::AudioOutputIndex output_;
+};
+
+
+void test_external_audio_io()
+{
+    grafite::Graph graph;
+
+    const auto input_id = graph.add_audio_input("Input", 2);
+    const auto output_id = graph.add_audio_output("Output", 2);
+    auto& gain = graph.add_node<StereoGainNode>();
+
+    graph.connect(input_id, gain, grafite::AudioInputIndex{0});
+    graph.connect(gain, grafite::AudioOutputIndex{0}, output_id);
+
+    auto compiled = std::move(graph).compile(make_spec());
+    grafite::Engine engine(std::move(compiled));
+
+    auto input = engine.audio_input_buffer(input_id);
+    const auto output = engine.audio_output_buffer(output_id);
+
+    assert(input.channels() == 2);
+    assert(output.channels() == 2);
+    assert(input.frames() == 512);
+    assert(output.frames() == 512);
+
+    engine.clear_audio_inputs(128);
+    input(0, 0) = 0.5F;
+    input(1, 0) = -0.5F;
+    input(0, 127) = 1.0F;
+    engine.process(128);
+
+    assert(output(0, 0) == 0.25F);
+    assert(output(1, 0) == -0.25F);
+    assert(output(0, 1) == 0.0F);
+    assert(output(0, 127) == 0.5F);
+    assert(engine.frame_position() == 128);
+
+    engine.clear_audio_inputs(64);
+    input(1, 1) = 0.25F;
+    engine.process(64);
+
+    assert(output(0, 0) == 0.0F);
+    assert(output(1, 1) == 0.125F);
+    assert(output(0, 63) == 0.0F);
+    assert(engine.frame_position() == 192);
+}
+
+void test_external_audio_views_after_engine_move()
+{
+    grafite::Graph graph;
+
+    const auto input_id = graph.add_audio_input("Input", 2);
+    const auto output_id = graph.add_audio_output("Output", 2);
+    const auto silent_id = graph.add_audio_output("Silent", 1);
+    auto& gain = graph.add_node<StereoGainNode>();
+
+    graph.connect(input_id, gain, grafite::AudioInputIndex{0});
+    graph.connect(gain, grafite::AudioOutputIndex{0}, output_id);
+
+    auto compiled = std::move(graph).compile(make_spec());
+    grafite::Engine engine(std::move(compiled));
+
+    auto input = engine.audio_input_buffer(input_id);
+    const auto output = engine.audio_output_buffer(output_id);
+    const auto silent = engine.audio_output_buffer(silent_id);
+
+    auto* const input_data = input.channel(0);
+    const auto* const output_data = output.channel(0);
+    const auto* const silent_data = silent.channel(0);
+
+    // Cached views must survive Engine move construction.
+    grafite::Engine moved(std::move(engine));
+
+    assert(moved.audio_input_buffer(input_id).channel(0) == input_data);
+    assert(moved.audio_output_buffer(output_id).channel(0) == output_data);
+    assert(moved.audio_output_buffer(silent_id).channel(0) == silent_data);
+
+    moved.clear_audio_inputs(64);
+    input(0, 0) = 0.75F;
+    input(1, 1) = -0.5F;
+    moved.process(64);
+
+    assert(output(0, 0) == 0.375F);
+    assert(output(1, 1) == -0.25F);
+    assert(output(0, 1) == 0.0F);
+    assert(silent(0, 0) == 0.0F);
+    assert(moved.frame_position() == 64);
+
+    // Move assignment must preserve views of the incoming graph.
+    auto destination = make_engine();
+    destination = std::move(moved);
+
+    assert(destination.audio_input_buffer(input_id).channel(0) ==
+           input_data);
+    assert(destination.audio_output_buffer(output_id).channel(0) ==
+           output_data);
+    assert(destination.audio_output_buffer(silent_id).channel(0) ==
+           silent_data);
+
+    destination.clear_audio_inputs(32);
+    input(0, 0) = -1.0F;
+    destination.process(32);
+
+    assert(output(0, 0) == -0.5F);
+    assert(output(1, 1) == 0.0F);
+    assert(silent(0, 0) == 0.0F);
+    assert(destination.frame_position() == 96);
+}
+
+void test_external_audio_reset_contract()
+{
+    grafite::Graph graph;
+
+    const auto input_id = graph.add_audio_input("Input", 2);
+    const auto output_id = graph.add_audio_output("Output", 2);
+    const auto silent_id = graph.add_audio_output("Silent", 1);
+    auto& gain = graph.add_node<StereoGainNode>();
+
+    graph.connect(input_id, gain, grafite::AudioInputIndex{0});
+    graph.connect(gain, grafite::AudioOutputIndex{0}, output_id);
+
+    auto compiled = std::move(graph).compile(make_spec());
+    grafite::Engine engine(std::move(compiled));
+
+    auto input = engine.audio_input_buffer(input_id);
+    const auto output = engine.audio_output_buffer(output_id);
+    const auto silent = engine.audio_output_buffer(silent_id);
+
+    engine.clear_audio_inputs(128);
+    input(0, 0) = 0.75F;
+    input(1, 127) = -0.5F;
+    engine.process(128);
+
+    assert(output(0, 0) == 0.375F);
+    assert(output(1, 127) == -0.25F);
+    assert(engine.frame_position() == 128);
+
+    engine.reset();
+
+    // Reset restarts the timeline without changing graph-owned buffers.
+    assert(engine.frame_position() == 0);
+    assert(engine.audio_input_buffer(input_id).channel(0) ==
+           input.channel(0));
+    assert(engine.audio_output_buffer(output_id).channel(0) ==
+           output.channel(0));
+    assert(engine.audio_output_buffer(silent_id).channel(0) ==
+           silent.channel(0));
+
+    // The caller clears each new block; reset does not do so implicitly.
+    engine.clear_audio_inputs(64);
+    input(0, 1) = -1.0F;
+    engine.process(64);
+
+    assert(output(0, 0) == 0.0F);
+    assert(output(0, 1) == -0.5F);
+    assert(output(1, 1) == 0.0F);
+    assert(silent(0, 0) == 0.0F);
+    assert(engine.frame_position() == 64);
+}
+
+void test_empty_graph_and_zero_frame_contract()
+{
+    grafite::Graph graph;
+    auto compiled = std::move(graph).compile(make_spec());
+    grafite::Engine engine(std::move(compiled));
+
+    assert(engine.graph().node_count() == 0);
+    engine.clear_audio_inputs(0);
+    engine.process(0);
+    assert(engine.frame_position() == 0);
+
+    engine.clear_audio_inputs(1);
+    engine.process(1);
+    assert(engine.frame_position() == 1);
+
+    engine.process(512);
+    assert(engine.frame_position() == 513);
+
+    engine.reset();
+    assert(engine.frame_position() == 0);
+}
+
+
+void test_zero_frame_preserves_external_audio()
+{
+    grafite::Graph graph;
+
+    const auto input_id = graph.add_audio_input("Input", 2);
+    const auto output_id = graph.add_audio_output("Output", 2);
+    auto& gain = graph.add_node<StereoGainNode>();
+
+    graph.connect(input_id, gain, grafite::AudioInputIndex{0});
+    graph.connect(gain, grafite::AudioOutputIndex{0}, output_id);
+
+    auto compiled = std::move(graph).compile(make_spec());
+    grafite::Engine engine(std::move(compiled));
+    auto input = engine.audio_input_buffer(input_id);
+    const auto output = engine.audio_output_buffer(output_id);
+
+    engine.clear_audio_inputs(64);
+    input(0, 0) = 0.5F;
+    engine.process(64);
+    assert(output(0, 0) == 0.25F);
+
+    input(0, 0) = -0.75F;
+    engine.clear_audio_inputs(0);
+    engine.process(0);
+
+    assert(engine.frame_position() == 64);
+    assert(input(0, 0) == -0.75F);
+    assert(output(0, 0) == 0.25F);
+}
+
+
 }  // namespace
 
 
@@ -242,6 +484,11 @@ int main()
     test_reset_propagates_to_nodes();
 
     test_engine_move();
+    test_external_audio_io();
+    test_external_audio_views_after_engine_move();
+    test_external_audio_reset_contract();
+    test_empty_graph_and_zero_frame_contract();
+    test_zero_frame_preserves_external_audio();
 
     return 0;
 }

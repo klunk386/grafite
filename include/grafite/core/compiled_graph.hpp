@@ -16,6 +16,7 @@
 #ifndef GRAFITE_CORE_COMPILED_GRAPH_HPP
 #define GRAFITE_CORE_COMPILED_GRAPH_HPP
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -129,6 +130,73 @@ public:
         }
     }
 
+    /// Returns a writable view of a preallocated external audio input.
+    ///
+    /// Resolve the input identifier during setup, outside the real-time
+    /// callback. The view refers to storage owned by this graph and
+    /// remains valid across process() calls while the graph is alive.
+    /// For a block of size frames, only the first frames samples in each
+    /// channel are consumed. Clear inputs before writing each new block.
+    ///
+    /// Throws std::invalid_argument if the input identifier is unknown.
+    [[nodiscard]]
+    AudioBufferView audio_input_buffer(GraphAudioInputId id)
+    {
+        return external_audio_input_resource(id).view();
+    }
+
+    /// Returns a read-only view of a graph audio output.
+    ///
+    /// The view references a node output buffer directly, without copying.
+    /// After process(frames, ...) completes, only the first frames
+    /// samples of each channel contain the current block's output.
+    /// The view remains valid while the graph owns its buffers, including
+    /// across process() calls. Unconnected outputs reference preallocated
+    /// silence. Resolve identifiers outside the real-time callback.
+    /// Throws std::invalid_argument for an unknown output identifier.
+    [[nodiscard]]
+    ConstAudioBufferView audio_output_buffer(
+        GraphAudioOutputId id
+    ) const
+    {
+        for (const auto& binding : external_audio_outputs_) {
+            if (binding.id.value == id.value) {
+                return binding.view;
+            }
+        }
+
+        throw std::invalid_argument(
+            "External audio output was not found"
+        );
+    }
+
+    /// Clears the valid portion of all external audio input buffers.
+    ///
+    /// Call this before filling inputs for each processing block. Unwritten
+    /// samples then remain silent, including on partially filled inputs.
+    /// process() deliberately does not clear external inputs, because doing
+    /// so would discard samples already supplied by the audio backend.
+    ///
+    /// frames must not exceed the compiled maximum block size. This method
+    /// does not allocate memory or perform structural graph lookups.
+    void clear_audio_inputs(FrameCount frames) noexcept
+    {
+        assert(frames <= spec_.max_block_size);
+
+        for (auto& resource : external_audio_inputs_) {
+            auto view = resource.buffer->view();
+
+            for (ChannelCount channel = 0;
+                 channel < view.channels(); ++channel) {
+                std::fill_n(
+                    view.channel(channel),
+                    frames,
+                    Sample{0}
+                );
+            }
+        }
+    }
+
     /// Resets the internal processing state of all nodes.
     ///
     /// This method does not alter graph structure, runtime bindings, or the
@@ -151,6 +219,11 @@ private:
     struct ExternalAudioInputResource {
         GraphAudioInputId id;
         std::unique_ptr<AudioBuffer> buffer;
+    };
+
+    struct ExternalAudioOutputBinding {
+        GraphAudioOutputId id;
+        ConstAudioBufferView view;
     };
 
     struct EventResource {
@@ -201,6 +274,7 @@ private:
         allocate_output_resources();
         allocate_external_audio_inputs();
         build_runtime_nodes(connections);
+        bind_external_audio_outputs();
 
         for (auto& node : nodes_) {
             node->prepare(spec_);
@@ -409,6 +483,33 @@ private:
         }
     }
 
+    void bind_external_audio_outputs()
+    {
+        for (const auto& port : audio_ports_) {
+            if (port.direction != GraphPortDirection::output) {
+                continue;
+            }
+
+            const GraphAudioOutputId id{port.id};
+            const AudioBuffer* buffer = nullptr;
+
+            for (const auto& connection : audio_output_connections_) {
+                if (connection.destination.value == id.value) {
+                    buffer = &audio_resource(connection.source);
+                    break;
+                }
+            }
+
+            if (buffer == nullptr) {
+                buffer = &silent_audio_resource(port.channels);
+            }
+
+            external_audio_outputs_.push_back(
+                ExternalAudioOutputBinding{id, buffer->view()}
+            );
+        }
+    }
+
     void build_runtime_nodes(
         const std::vector<Connection>& connections
     )
@@ -538,6 +639,9 @@ private:
 
     std::vector<ExternalAudioInputResource>
         external_audio_inputs_;
+
+    std::vector<ExternalAudioOutputBinding>
+        external_audio_outputs_;
 
     std::vector<SilentAudioResource>
         silent_audio_resources_;

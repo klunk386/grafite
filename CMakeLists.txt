@@ -180,4 +180,144 @@ if(GRAFITE_BUILD_TESTS)
         COMMAND test_graph_io
     )
 
+    add_executable(
+        test_wav_reader
+        tests/io/test_wav_reader.cpp
+    )
+
+    target_link_libraries(
+        test_wav_reader
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME wav_reader
+        COMMAND test_wav_reader
+    )
+
+    add_executable(
+        test_wav_writer
+        tests/io/test_wav_writer.cpp
+    )
+
+    target_link_libraries(
+        test_wav_writer
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME wav_writer
+        COMMAND test_wav_writer
+    )
+
+    add_executable(
+        test_engine_audio_processor
+        tests/io/test_engine_audio_processor.cpp
+    )
+
+    target_link_libraries(
+        test_engine_audio_processor
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME engine_audio_processor
+        COMMAND test_engine_audio_processor
+    )
+
+    add_executable(
+        test_planar_output_renderer
+        tests/io/test_planar_output_renderer.cpp
+    )
+
+    target_link_libraries(
+        test_planar_output_renderer
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME planar_output_renderer
+        COMMAND test_planar_output_renderer
+    )
+
+    add_executable(
+        test_wav_gain
+        tests/io/test_wav_gain.cpp
+    )
+
+    target_include_directories(
+        test_wav_gain
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/examples
+    )
+
+    target_link_libraries(
+        test_wav_gain
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME wav_gain
+        COMMAND test_wav_gain
+    )
+
+
+endif()
+
+# -----------------------------------------------------------------------------
+# Offline audio example
+# -----------------------------------------------------------------------------
+
+option(GRAFITE_BUILD_EXAMPLES "Build GRAFITE examples" ON)
+
+if(GRAFITE_BUILD_EXAMPLES)
+    add_executable(
+        grafite_wav_gain
+        examples/wav_gain.cpp
+    )
+
+    target_link_libraries(
+        grafite_wav_gain
+        PRIVATE
+            grafite_core
+    )
+endif()
+
+# -----------------------------------------------------------------------------
+# Optional native CoreAudio probe (macOS only)
+# -----------------------------------------------------------------------------
+
+option(GRAFITE_BUILD_COREAUDIO "Build native CoreAudio components" ON)
+
+if(APPLE AND GRAFITE_BUILD_COREAUDIO AND GRAFITE_BUILD_EXAMPLES)
+    add_executable(
+        grafite_coreaudio_probe
+        examples/coreaudio_probe.cpp
+    )
+
+    add_executable(
+        grafite_coreaudio_sine
+        examples/coreaudio_sine.cpp
+    )
+
+    target_link_libraries(
+        grafite_coreaudio_sine
+        PRIVATE
+            grafite_core
+            "-framework AudioToolbox"
+            "-framework CoreAudio"
+    )
+
+    target_link_libraries(
+        grafite_coreaudio_probe
+        PRIVATE
+            grafite_core
+            "-framework AudioToolbox"
+            "-framework CoreAudio"
+    )
 endif()

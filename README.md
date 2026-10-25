@@ -18,7 +18,10 @@
 </p>
 
 <p align="center">
-  <!-- Additional badges can be added here as project infrastructure becomes active. -->
+  <a href="https://github.com/klunk386/grafite/actions/workflows/ci.yml">
+    <img src="https://github.com/klunk386/grafite/actions/workflows/ci.yml/badge.svg?branch=develop"
+         alt="C++ CI (develop)">
+  </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-LGPL--3.0--or--later-blue.svg"
          alt="License: LGPL-3.0-or-later">
@@ -40,18 +43,17 @@ DSP units and complete processing subsystems can be composed using the same
 graph model.
 
 The engine is designed around a platform-independent C++ processing core,
-with external audio I/O isolated behind dedicated backends. Linux is the
-initial development target, while portability to other platforms remains a
-fundamental architectural requirement.
+with external audio I/O isolated behind dedicated backends. The portable core is tested on Linux and macOS; the first native real-time
+backend is CoreAudio on macOS, with ALSA planned for Linux.
 
 Real-time and offline processing share the same nodes, graphs, buffers, and
 event model. Audio and discrete events are represented as separate streams
 and synchronized on a common sample timeline.
 
 > [!IMPORTANT]
-> GRAFITE is currently in the initial architecture and development phase.
-> The public API and internal interfaces described below are design goals and
-> may evolve substantially before the first stable release.
+> GRAFITE is an early-stage project. Graph execution, offline WAV processing,
+> and experimental CoreAudio output are functional, but APIs are not stable.
+> Some features described below remain design goals.
 
 ## Key features and design goals
 
@@ -83,6 +85,7 @@ and synchronized on a common sample timeline.
 - [Planned DSP library](#planned-dsp-library)
 - [Python integration](#python-integration)
 - [Repository structure](#repository-structure)
+- [Current implementation](#current-implementation)
 - [Getting started](#getting-started)
 - [Build system](#build-system)
 - [Development roadmap](#development-roadmap)
@@ -137,16 +140,15 @@ interoperate with other GRAFITE-based systems.
 
 The DSP core must not depend on a particular operating system or audio API.
 
-Platform-specific audio I/O is isolated behind backend interfaces. Linux is
-the initial development target, with ALSA and JACK planned as the first
-real-time backends. Other systems can be supported later without changing
-the processing model.
+Platform-specific audio I/O is isolated from the processing core. The
+`AudioProcessor` interface decouples offline WAV and native CoreAudio output
+drivers from the `Engine`; `EngineAudioProcessor` adapts the Engine to that
+interface. CoreAudio is the first experimental native real-time backend,
+because hardware validation currently takes place on macOS. ALSA on Linux
+is planned next, followed by other optional backends such as JACK, WASAPI,
+ASIO, PipeWire, or network audio.
 
-Potential future backends include CoreAudio, WASAPI, ASIO, PipeWire, network
-audio, and other I/O mechanisms.
-
-The core itself must never require platform-specific APIs such as ALSA or
-JACK.
+The portable core must not require platform-specific audio APIs.
 
 ### Real-time and offline processing
 
@@ -346,7 +348,9 @@ Backends connect GRAFITE to external audio systems.
 The backend layer is intentionally separated from the core so that different
 platforms and execution environments can use the same processing graph.
 
-The first development target is Linux, with ALSA and JACK support planned.
+Offline WAV processing and experimental CoreAudio stereo output on macOS
+are implemented. ALSA and JACK are planned; CoreAudio input capture is not
+yet implemented.
 
 ## Composite nodes and subgraphs
 
@@ -418,111 +422,109 @@ C++ DSP
 
 ## Repository structure
 
-The initial repository organization is:
+The implementation is currently predominantly header-only:
 
 ```text
 grafite/
-├── cmake/
-│
-├── include/
-│   └── grafite/
-│       ├── core/
-│       ├── event/
-│       ├── backend/
-│       └── dsp/
-│
-├── src/
-│   ├── core/
-│   ├── event/
-│   ├── backend/
-│   │   ├── alsa/
-│   │   ├── jack/
-│   │   └── file/
-│   └── dsp/
-│
+├── .github/workflows/ci.yml
+├── include/grafite/
+│   ├── core/             # Buffers, nodes, graphs, engine
+│   ├── event/            # Event interfaces
+│   └── io/               # AudioProcessor, WAV and CoreAudio
 ├── tests/
 │   ├── core/
 │   ├── event/
-│   ├── dsp/
-│   └── backend/
-│
-├── examples/
-│   ├── passthrough/
-│   ├── simple_gain/
-│   └── graph_demo/
-│
-├── apps/
-├── bindings/
-│   └── python/
-│
-└── docs/
+│   └── io/
+├── examples/             # WAV gain and CoreAudio programs
+├── CMakeLists.txt
+└── README.md
 ```
 
-Public C++ interfaces live under `include/grafite/`, while implementation
-details remain under `src/`.
+Platform-specific code is isolated from the portable processing core.
 
-Platform-specific code must remain isolated from the platform-independent
-core.
+## Current implementation
+
+Implemented and covered by deterministic software tests:
+
+- Audio and event buffers, typed ports, and node lifecycle.
+- Graph validation, compilation, topological scheduling and execution.
+- External graph audio I/O and variable-size block processing.
+- `Engine`, `AudioProcessor`, and `EngineAudioProcessor`.
+- PCM16 WAV reader/writer, offline `FileAudioBackend`, and end-to-end gain
+  processing.
+- CMake builds and CTest on Ubuntu (GCC and Clang) and macOS (Apple Clang).
+
+An experimental CoreAudio stereo output backend and 440 Hz oscillator
+example have also been validated manually on macOS hardware.
+
+Not yet implemented: CoreAudio capture, ALSA, JACK, multi-graph scheduling,
+composite-node execution, Python bindings, and GUI/control APIs.
 
 ## Getting started
 
-GRAFITE is not yet at a stage where a stable build or installation procedure
-is provided. During the initial development phase, the repository primarily
-defines the architecture, public interfaces, tests, and reference
-implementations.
+GRAFITE requires CMake 3.16 or later and a C++20 compiler.
 
-Once the first functional core is available, this section will provide the
-standard workflow for cloning, configuring, building, testing, and installing
-GRAFITE.
+```sh
+cmake -S . -B build
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
+
+### Offline WAV example
+
+Process a PCM16 WAV with a gain of 0.5:
+
+```sh
+./build/grafite_wav_gain input.wav output.wav 0.5
+```
+
+The example uses `FileAudioBackend` and `EngineAudioProcessor`.
+
+### CoreAudio examples (macOS only)
+
+```sh
+./build/grafite_coreaudio_probe
+./build/grafite_coreaudio_sine
+```
+
+The probe checks AudioUnit availability. The sine example plays a quiet
+440 Hz stereo tone for approximately three seconds. Lower speaker volume
+before running it. Audio playback is not exercised by CI.
 
 ## Build system
 
-GRAFITE uses CMake.
+CMake defines the portable `grafite_core` interface target and optional
+tests and examples. Relevant configuration switches are:
 
-The project is intended to be organized into independent targets rather than
-as a single monolithic library. The planned separation includes the core,
-DSP components, and optional platform backends.
+- `GRAFITE_BUILD_TESTS` (default `ON`).
+- `GRAFITE_BUILD_EXAMPLES` (default `ON`).
+- `GRAFITE_BUILD_COREAUDIO` (default `ON`, effective only on macOS
+  when examples are enabled).
 
-Conceptually:
+The [C++ CI workflow](https://github.com/klunk386/grafite/actions/workflows/ci.yml)
+runs for pushes to `develop` and pull requests targeting `develop` or
+`main`. It compiles the core, tests, and examples on Ubuntu/GCC,
+Ubuntu/Clang, and macOS/Apple Clang, then runs deterministic CTest
+software tests. Hardware-dependent audio execution is excluded.
 
-```text
-grafite_core
-    ^
-    |
-grafite_dsp
-
-grafite_core <--- grafite_backend_alsa ---> ALSA
-grafite_core <--- grafite_backend_jack ---> JACK
-```
-
-Optional functionality should be independently selectable so that the core
-can be built without requiring every supported backend or language binding.
-
-Build instructions will be added once the first functional implementation is
-available.
+The badge at the top reports the combined workflow result on `develop`,
+not physical audio-device compatibility or measured real-time latency.
 
 ## Development roadmap
 
-The initial development effort focuses on validating the architecture before
-expanding the DSP library or application layer.
+Development proceeds in small, tested increments on `develop`.
 
-The first design and implementation stages are expected to cover:
+1. Harden CoreAudio output: device format, callback behavior, lifecycle,
+   and real-time error handling.
+2. Add CoreAudio capture and validate live input → DSP → output.
+3. Implement ALSA on Linux using the same backend-independent interface.
+4. Develop multi-graph scheduling and execution domains, keeping logical
+   graphs independent of physical audio threads.
+5. Extend DSP, event/MIDI applications, control APIs, optional daemon
+   orchestration, and embedded or remote user interfaces.
 
-1. fundamental types and sample representation;
-2. audio buffer and memory model;
-3. ports and node lifecycle;
-4. processing context;
-5. event representation and sample-accurate event buffers;
-6. graph construction and validation;
-7. graph scheduling;
-8. engine execution model;
-9. offline processing;
-10. first Linux real-time backend;
-11. basic DSP nodes and reference examples.
-
-Higher-level applications, Python bindings, graphical interfaces, plugin
-systems, and larger DSP collections will follow only after the core
-processing model is sufficiently stable.
+Composite nodes, larger DSP libraries, and Python bindings remain design
+goals rather than completed features.
 
 ## Non-goals of the core
 
