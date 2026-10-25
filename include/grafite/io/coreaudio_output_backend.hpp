@@ -111,7 +111,9 @@ public:
                     kAudioFormatFlagIsNonInterleaved) == 0 ||
                 actual.mChannelsPerFrame != 2 ||
                 actual.mBitsPerChannel != 32 ||
-                actual.mBytesPerFrame != sizeof(float)) {
+                actual.mBytesPerFrame != sizeof(float) ||
+                actual.mFramesPerPacket != 1 ||
+                actual.mBytesPerPacket != sizeof(float)) {
                 throw std::runtime_error(
                     "CoreAudio did not accept planar stereo Float32 "
                     "at the requested sample rate"
@@ -143,9 +145,13 @@ public:
     CoreAudioOutputBackend(const CoreAudioOutputBackend&) = delete;
     CoreAudioOutputBackend& operator=(const CoreAudioOutputBackend&) = delete;
 
-    ~CoreAudioOutputBackend()
+    ~CoreAudioOutputBackend() noexcept
     {
-        stop();
+        if (running_) {
+            // Best-effort stop: destruction cannot propagate errors.
+            AudioOutputUnitStop(unit_);
+            running_ = false;
+        }
         if (initialized_) {
             AudioUnitUninitialize(unit_);
         }
@@ -162,10 +168,11 @@ public:
         }
     }
 
-    void stop() noexcept
+    /// Stops rendering on the control thread and reports failures.
+    void stop()
     {
         if (running_) {
-            AudioOutputUnitStop(unit_);
+            check(AudioOutputUnitStop(unit_), "Cannot stop CoreAudio");
             running_ = false;
         }
     }
