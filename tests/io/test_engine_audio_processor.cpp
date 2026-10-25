@@ -80,7 +80,7 @@ void test_backend_independent_processing()
     const std::array<grafite::ConstAudioBufferView, 1> inputs{
         source.view()
     };
-    const std::array<grafite::AudioBufferView, 1> outputs{
+    std::array<grafite::AudioBufferView, 1> outputs{
         destination.view()
     };
 
@@ -120,7 +120,7 @@ void test_unconnected_output_is_silent()
 
     grafite::AudioBuffer destination(1, 4);
     destination(0, 0) = 1.0F;
-    const std::array<grafite::AudioBufferView, 1> outputs{
+    std::array<grafite::AudioBufferView, 1> outputs{
         destination.view()
     };
 
