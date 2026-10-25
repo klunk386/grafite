@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -48,7 +49,8 @@ public:
           max_block_size_(max_block_size),
           output_(2, max_block_size)
     {
-        if (sample_rate <= 0.0 || max_block_size == 0) {
+        if (!std::isfinite(sample_rate) || sample_rate <= 0.0 ||
+            max_block_size == 0) {
             throw std::invalid_argument("Invalid CoreAudio configuration");
         }
 
@@ -87,6 +89,34 @@ public:
                 &format,
                 sizeof(format)
             ), "Cannot configure CoreAudio output format");
+
+            // Verify the format actually accepted by the AudioUnit.
+            // In particular, the DSP rate must match the render rate.
+            AudioStreamBasicDescription actual{};
+            UInt32 actual_size = sizeof(actual);
+            check(AudioUnitGetProperty(
+                unit_,
+                kAudioUnitProperty_StreamFormat,
+                kAudioUnitScope_Input,
+                0,
+                &actual,
+                &actual_size
+            ), "Cannot query CoreAudio output format");
+
+            if (actual_size != sizeof(actual) ||
+                actual.mSampleRate != sample_rate ||
+                actual.mFormatID != kAudioFormatLinearPCM ||
+                (actual.mFormatFlags & kAudioFormatFlagIsFloat) == 0 ||
+                (actual.mFormatFlags &
+                    kAudioFormatFlagIsNonInterleaved) == 0 ||
+                actual.mChannelsPerFrame != 2 ||
+                actual.mBitsPerChannel != 32 ||
+                actual.mBytesPerFrame != sizeof(float)) {
+                throw std::runtime_error(
+                    "CoreAudio did not accept planar stereo Float32 "
+                    "at the requested sample rate"
+                );
+            }
 
             AURenderCallbackStruct callback{};
             callback.inputProc = &CoreAudioOutputBackend::render;
@@ -187,10 +217,10 @@ private:
             return noErr;
         }
 
-        if (data->mBuffers[0].mDataByteSize <
-                frames * sizeof(float) ||
-            data->mBuffers[1].mDataByteSize <
-                frames * sizeof(float)) {
+        if (static_cast<std::uint64_t>(frames) * sizeof(float) >
+                data->mBuffers[0].mDataByteSize ||
+            static_cast<std::uint64_t>(frames) * sizeof(float) >
+                data->mBuffers[1].mDataByteSize) {
             return noErr;
         }
 
