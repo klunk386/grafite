@@ -213,6 +213,22 @@ if(GRAFITE_BUILD_TESTS)
     )
 
     add_executable(
+        test_engine_audio_processor
+        tests/io/test_engine_audio_processor.cpp
+    )
+
+    target_link_libraries(
+        test_engine_audio_processor
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME engine_audio_processor
+        COMMAND test_engine_audio_processor
+    )
+
+    add_executable(
         test_wav_gain
         tests/io/test_wav_gain.cpp
     )
