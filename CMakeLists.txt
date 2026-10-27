@@ -264,6 +264,22 @@ if(GRAFITE_BUILD_TESTS)
     )
 
     add_executable(
+        test_ring_buffer_playback_processor
+        tests/io/test_ring_buffer_playback_processor.cpp
+    )
+
+    target_link_libraries(
+        test_ring_buffer_playback_processor
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME ring_buffer_playback_processor
+        COMMAND test_ring_buffer_playback_processor
+    )
+
+    add_executable(
         test_wav_gain
         tests/io/test_wav_gain.cpp
     )
@@ -332,6 +348,19 @@ if(APPLE AND GRAFITE_BUILD_COREAUDIO AND GRAFITE_BUILD_EXAMPLES)
     add_executable(
         grafite_coreaudio_capture
         examples/coreaudio_capture.cpp
+    )
+
+    add_executable(
+        grafite_coreaudio_loopback
+        examples/coreaudio_loopback.cpp
+    )
+
+    target_link_libraries(
+        grafite_coreaudio_loopback
+        PRIVATE
+            grafite_core
+            "-framework AudioToolbox"
+            "-framework CoreAudio"
     )
 
     target_link_libraries(
