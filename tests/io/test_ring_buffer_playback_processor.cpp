@@ -56,6 +56,39 @@ int main()
     processor.process({}, outputs, 4);
     assert(processor.recovery_events() == 1);
 
+    // Explicit routing can produce mono or multiple duplicate channels.
+    grafite::io::AudioRingBuffer mono_ring(1, 16);
+    assert(mono_ring.write(source.view(), 8) == 8);
+    grafite::io::RingBufferPlaybackProcessor mono_processor(
+        mono_ring, 48000.0, 48000.0, 2, 1.0F,
+        grafite::io::ChannelRouting({0})
+    );
+    grafite::AudioBuffer mono_output(1, 4);
+    std::array<grafite::AudioBufferView, 1> mono_views{
+        mono_output.view()
+    };
+    mono_processor.process({}, mono_views, 4);
+    for (std::size_t i = 0; i < 4; ++i) {
+        assert(mono_output(0, i) == static_cast<float>(i));
+    }
+
+    grafite::io::AudioRingBuffer multi_ring(1, 16);
+    assert(multi_ring.write(source.view(), 8) == 8);
+    grafite::io::RingBufferPlaybackProcessor multi_processor(
+        multi_ring, 48000.0, 48000.0, 2, 1.0F,
+        grafite::io::ChannelRouting({0, 0, 0})
+    );
+    grafite::AudioBuffer multi_output(3, 4);
+    std::array<grafite::AudioBufferView, 1> multi_views{
+        multi_output.view()
+    };
+    multi_processor.process({}, multi_views, 4);
+    for (std::size_t i = 0; i < 4; ++i) {
+        for (std::size_t ch = 0; ch < 3; ++ch) {
+            assert(multi_output(ch, i) == static_cast<float>(i));
+        }
+    }
+
     // Below startup threshold, output remains silent.
     grafite::io::AudioRingBuffer empty(1, 16);
     grafite::io::RingBufferPlaybackProcessor waiting(
