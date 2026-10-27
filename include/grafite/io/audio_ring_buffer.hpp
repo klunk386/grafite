@@ -22,7 +22,6 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
-#include <vector>
 
 #include "grafite/core/audio_buffer.hpp"
 
@@ -33,6 +32,13 @@ namespace grafite::io {
 /// Exactly one thread may call write(), and exactly one other thread may
 /// call read(). The buffer must not be resized or destroyed while active.
 /// Partial transfers are permitted; callers handle overflow and underflow.
+/// A successful transfer publishes all channels of each frame together.
+/// The caller must not modify a source region until write() returns, nor
+/// inspect a destination region until read() returns.
+/// Query methods are advisory during concurrent operation; they must not
+/// be used to reserve capacity or replace the returned transfer counts.
+/// The frame counters assume fewer than 2^63 outstanding increments across
+/// the lifetime of the object (no counter wraparound).
 /// Indices are monotonically increasing frame counters (not sample counters).
 ///
 /// The class is not a clock synchronizer or a sample-rate converter.
