@@ -74,7 +74,14 @@ public:
     {
         const auto written = write_pos_.load(std::memory_order_acquire);
         const auto read = read_pos_.load(std::memory_order_acquire);
-        return static_cast<FrameCount>(written - read);
+        // The consumer may advance after the producer snapshot.
+        // Clamp this advisory result to avoid unsigned underflow.
+        if (read > written) {
+            return 0;
+        }
+        return std::min(
+            capacity_, static_cast<FrameCount>(written - read)
+        );
     }
 
     [[nodiscard]] FrameCount available_write() const noexcept
