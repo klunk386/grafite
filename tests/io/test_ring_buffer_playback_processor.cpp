@@ -40,9 +40,21 @@ int main()
         assert(output(0, i) == output(1, i));
     }
 
+    assert(processor.peak_occupancy() == 8);
+    assert(processor.underflow_events() == 0);
+    assert(processor.underflow_frames() == 0);
+
     // Exhausted FIFO eventually produces silence without blocking.
     processor.process({}, outputs, 4);
     assert(output(0, 3) == 0.0F);
+    assert(processor.underflow_events() == 1);
+    assert(processor.underflow_frames() > 0);
+    assert(processor.recovery_events() == 0);
+
+    // Refill enough data to recover after a real underflow.
+    assert(ring.write(source.view(), 8) == 8);
+    processor.process({}, outputs, 4);
+    assert(processor.recovery_events() == 1);
 
     // Below startup threshold, output remains silent.
     grafite::io::AudioRingBuffer empty(1, 16);
@@ -51,6 +63,9 @@ int main()
     );
     output.clear();
     waiting.process({}, outputs, 4);
+    assert(waiting.underflow_events() == 0);
+    assert(waiting.underflow_frames() == 0);
+    assert(waiting.recovery_events() == 0);
     for (std::size_t i = 0; i < 4; ++i) {
         assert(output(0, i) == 0.0F);
         assert(output(1, i) == 0.0F);
