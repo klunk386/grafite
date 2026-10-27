@@ -25,6 +25,7 @@
 
 #include "grafite/io/audio_processor.hpp"
 #include "grafite/io/audio_ring_buffer.hpp"
+#include "grafite/io/linear_resampler.hpp"
 
 namespace grafite::io {
 
@@ -44,12 +45,11 @@ public:
         float gain = 0.02F
     )
         : ring_(ring),
-          step_(input_rate / output_rate),
+          resampler_(input_rate, output_rate),
           startup_frames_(startup_frames),
           gain_(gain)
     {
-        if (ring.channels() != 1 || !std::isfinite(step_) ||
-            step_ <= 0.0 || step_ > 16.0 ||
+        if (ring.channels() != 1 ||
             startup_frames < 2 || startup_frames > ring.capacity() ||
             !std::isfinite(gain) || gain < 0.0F || gain > 1.0F) {
             throw std::invalid_argument("Invalid ring playback configuration");
@@ -105,7 +105,9 @@ public:
             if (!active_) {
                 if (ring_.available_read() >= startup_frames_) {
                     active_ = take(current_) && take(next_);
-                    phase_ = 0.0;
+                    if (active_) {
+                        resampler_.reset(current_, next_);
+                    }
                     if (active_ && has_started_) {
                         recovery_events_.fetch_add(
                             1, std::memory_order_relaxed
@@ -117,23 +119,19 @@ public:
                 }
             }
             if (active_) {
-                // Advance the source timeline before interpolating.
-                while (phase_ >= 1.0) {
-                    current_ = next_;
-                    if (!take(next_)) {
-                        active_ = false;
-                        underflow_events_.fetch_add(
-                            1, std::memory_order_relaxed
-                        );
-                        break;
-                    }
-                    phase_ -= 1.0;
-                }
-                if (active_) {
-                    value = static_cast<float>(
-                        current_ + (next_ - current_) * phase_
-                    ) * gain_;
-                    phase_ += step_;
+                if (!resampler_.render(
+                        [this](Sample& sample) noexcept {
+                            return take(sample);
+                        },
+                        value
+                    )) {
+                    active_ = false;
+                    underflow_events_.fetch_add(
+                        1, std::memory_order_relaxed
+                    );
+                    value = 0.0F;
+                } else {
+                    value *= gain_;
                 }
             }
             if (!active_ && has_started_) {
@@ -162,10 +160,9 @@ private:
     }
 
     AudioRingBuffer& ring_;
-    double step_;
+    LinearResampler resampler_;
     FrameCount startup_frames_;
     float gain_;
-    double phase_ = 0.0;
     float current_ = 0.0F;
     float next_ = 0.0F;
     bool active_ = false;
