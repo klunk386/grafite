@@ -17,6 +17,7 @@
 #define GRAFITE_IO_CHANNEL_ROUTING_HPP
 
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "grafite/core/audio_buffer.hpp"
