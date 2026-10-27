@@ -14,6 +14,7 @@
 // =============================================================================
 
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <thread>
 
@@ -35,6 +36,10 @@ int main()
 
     assert(ring.available_read() == 0);
     assert(ring.available_write() == 5);
+    assert(ring.write(source.view(), 0) == 0);
+    assert(ring.read(destination.view(), 0) == 0);
+    assert(ring.write(source.view(), 9) == 0);
+    assert(ring.read(destination.view(), 9) == 0);
     assert(ring.write(source.view(), 8) == 5);
     assert(ring.available_write() == 0);
     assert(ring.read(destination.view(), 3) == 3);
@@ -83,4 +88,35 @@ int main()
     }
     producer.join();
     assert(concurrent.available_read() == 0);
+    assert(concurrent.available_write() == concurrent.capacity());
+
+    // Advisory occupancy queries must remain within bounds even while
+    // another thread advances its cursor between atomic loads.
+    AudioRingBuffer observed(1, 7);
+    std::atomic<bool> done{false};
+    std::thread writer([&] {
+        AudioBuffer one(1, 1);
+        for (std::size_t i = 0; i < 50000; ++i) {
+            while (observed.write(one.view(), 1) == 0) {
+                std::this_thread::yield();
+            }
+        }
+        done.store(true, std::memory_order_release);
+    });
+    std::thread reader([&] {
+        AudioBuffer one(1, 1);
+        std::size_t received = 0;
+        while (received < 50000) {
+            received += observed.read(one.view(), 1);
+            assert(observed.available_read() <= observed.capacity());
+            assert(observed.available_write() <= observed.capacity());
+        }
+    });
+    while (!done.load(std::memory_order_acquire)) {
+        assert(observed.available_read() <= observed.capacity());
+        assert(observed.available_write() <= observed.capacity());
+        std::this_thread::yield();
+    }
+    writer.join();
+    reader.join();
 }
