@@ -280,6 +280,22 @@ if(GRAFITE_BUILD_TESTS)
     )
 
     add_executable(
+        test_multichannel_linear_resampler
+        tests/io/test_multichannel_linear_resampler.cpp
+    )
+
+    target_link_libraries(
+        test_multichannel_linear_resampler
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME multichannel_linear_resampler
+        COMMAND test_multichannel_linear_resampler
+    )
+
+    add_executable(
         test_channel_routing
         tests/io/test_channel_routing.cpp
     )
