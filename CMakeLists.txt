@@ -244,6 +244,25 @@ if(GRAFITE_BUILD_TESTS)
         COMMAND test_planar_output_renderer
     )
 
+    find_package(Threads REQUIRED)
+
+    add_executable(
+        test_audio_ring_buffer
+        tests/io/test_audio_ring_buffer.cpp
+    )
+
+    target_link_libraries(
+        test_audio_ring_buffer
+        PRIVATE
+            grafite_core
+            Threads::Threads
+    )
+
+    add_test(
+        NAME audio_ring_buffer
+        COMMAND test_audio_ring_buffer
+    )
+
     add_executable(
         test_wav_gain
         tests/io/test_wav_gain.cpp
