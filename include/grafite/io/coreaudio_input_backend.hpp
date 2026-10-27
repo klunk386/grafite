@@ -21,6 +21,7 @@
 #include <AudioToolbox/AudioToolbox.h>
 #include <CoreAudio/CoreAudio.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
