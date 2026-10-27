@@ -24,25 +24,26 @@
 
 namespace grafite::io {
 
-/// Connects a stereo nominal-rate source to a stereo DSP processor.
+/// Connects a source processor to a DSP processor with matching bus width.
 ///
 /// The source and destination are AudioProcessor implementations. The
 /// preallocated scratch buffer belongs to this adapter. This component
 /// knows nothing about CoreAudio or the concrete Engine implementation.
-/// Both processors must accept one stereo output/input bus respectively.
+/// Both processors must accept one audio output/input bus respectively.
 /// Their lifetime must exceed that of the adapter.
 class RingBufferEngineProcessor final : public AudioProcessor {
 public:
     RingBufferEngineProcessor(
         AudioProcessor& source,
         AudioProcessor& engine,
-        FrameCount max_block_size
+        FrameCount max_block_size,
+        ChannelCount channels = 2
     )
         : source_(source),
           engine_(engine),
-          scratch_(2, max_block_size)
+          scratch_(channels, max_block_size)
     {
-        if (max_block_size == 0) {
+        if (max_block_size == 0 || channels == 0) {
             throw std::invalid_argument("Invalid processing block size");
         }
     }
@@ -55,7 +56,7 @@ public:
     {
         assert(inputs.empty());
         assert(outputs.size() == 1);
-        assert(outputs[0].channels() == 2);
+        assert(outputs[0].channels() > 0);
         assert(outputs[0].frames() >= frames);
         assert(frames <= scratch_.frames());
 
