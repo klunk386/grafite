@@ -18,15 +18,16 @@
 
 #include <algorithm>
 #include <array>
+#include <span>
 
 #include "grafite/core/audio_buffer.hpp"
 #include "grafite/io/audio_processor.hpp"
 
 namespace grafite::io {
 
-/// Hardware-independent stereo output transfer.
+/// Hardware-independent multichannel planar output transfer.
 ///
-/// Caller owns and preallocates scratch. The output pointers must each
+/// Caller owns and preallocates scratch. Each output pointer must
 /// reference at least frames writable samples. No allocations or locks.
 class PlanarOutputRenderer {
 public:
@@ -38,36 +39,57 @@ public:
     {
     }
 
-    /// Returns false for invalid buffers; valid output is zeroed first.
-    /// The processor must satisfy AudioProcessor's noexcept contract.
+    /// General planar transfer for the configured number of channels.
+    /// Invalid buffers return false without writing any samples.
+    bool render(
+        std::span<Sample* const> channels,
+        FrameCount frames
+    ) noexcept
+    {
+        if (channels.size() != scratch_.channels() ||
+            scratch_.channels() == 0 || scratch_.frames() == 0) {
+            return false;
+        }
+        for (ChannelCount ch = 0; ch < channels.size(); ++ch) {
+            if (channels[ch] == nullptr) {
+                return false;
+            }
+            for (ChannelCount other = 0; other < ch; ++other) {
+                if (channels[ch] == channels[other]) {
+                    return false;
+                }
+            }
+        }
+
+        for (auto* channel : channels) {
+            std::fill_n(channel, frames, Sample{0});
+        }
+        FrameCount offset = 0;
+        while (offset < frames) {
+            const FrameCount count = std::min(
+                scratch_.frames(), frames - offset
+            );
+            std::array<AudioBufferView, 1> outputs{scratch_.view()};
+            processor_.process({}, outputs, count);
+            for (ChannelCount ch = 0; ch < channels.size(); ++ch) {
+                std::copy_n(
+                    scratch_.channel(ch), count, channels[ch] + offset
+                );
+            }
+            offset += count;
+        }
+        return true;
+    }
+
+    /// Backward-compatible stereo convenience overload.
     bool render(
         Sample* left,
         Sample* right,
         FrameCount frames
     ) noexcept
     {
-        if (left == nullptr || right == nullptr || left == right ||
-            scratch_.channels() != 2 || scratch_.frames() == 0) {
-            return false;
-        }
-
-        std::fill_n(left, frames, Sample{0});
-        std::fill_n(right, frames, Sample{0});
-
-        FrameCount offset = 0;
-        while (offset < frames) {
-            const FrameCount count = std::min(
-                scratch_.frames(), frames - offset
-            );
-
-            std::array<AudioBufferView, 1> outputs{scratch_.view()};
-            processor_.process({}, outputs, count);
-
-            std::copy_n(scratch_.channel(0), count, left + offset);
-            std::copy_n(scratch_.channel(1), count, right + offset);
-            offset += count;
-        }
-        return true;
+        std::array<Sample*, 2> channels{left, right};
+        return render(channels, frames);
     }
 
 private:
