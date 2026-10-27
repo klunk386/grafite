@@ -17,6 +17,8 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
+#include <iomanip>
+#include <string>
 #include <iostream>
 #include <thread>
 #include <utility>
@@ -73,9 +75,16 @@ private:
 
 }  // namespace
 
-int main()
+int main(int argc, char* argv[])
 {
     try {
+        if (argc > 2 || (argc == 2 &&
+            std::string(argv[1]) != "--monitor")) {
+            std::cerr << "Usage: " << argv[0] << " [--monitor]\n";
+            return 2;
+        }
+        const bool monitor = argc == 2;
+        const int duration_seconds = monitor ? 60 : 5;
         constexpr double input_rate = 48000.0;
         constexpr double output_rate = 44100.0;
         constexpr grafite::FrameCount block_size = 512;
@@ -119,11 +128,34 @@ int main()
         );
 
         std::cout << "Mic -> FIFO -> resampler -> Engine/GainNode -> "
-                  << "speakers (5 seconds).\n"
+                  << "speakers (" << duration_seconds << " seconds).\n"
                   << "CAUTION: reduce speaker volume to prevent feedback.\n";
         input.start();
         output.start();
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        const auto started = std::chrono::steady_clock::now();
+        if (monitor) {
+            std::cout << "sec,occupancy_frames,occupancy_ms,"
+                      << "dropped_frames,overflow_callbacks,"
+                      << "underflow_events,underflow_frames,"
+                      << "recovery_events\n";
+        }
+        for (int second = 1; second <= duration_seconds; ++second) {
+            std::this_thread::sleep_until(
+                started + std::chrono::seconds(second)
+            );
+            if (monitor) {
+                const auto occupancy = ring.available_read();
+                std::cout << second << ',' << occupancy << ','
+                          << std::fixed << std::setprecision(3)
+                          << (1000.0 * static_cast<double>(occupancy) /
+                              input_rate) << ','
+                          << sink.dropped() << ','
+                          << sink.overflow_events() << ','
+                          << source.underflow_events() << ','
+                          << source.underflow_frames() << ','
+                          << source.recovery_events() << '\n';
+            }
+        }
         output.stop();
         input.stop();
 
