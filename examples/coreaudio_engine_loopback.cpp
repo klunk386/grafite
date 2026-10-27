@@ -47,7 +47,17 @@ public:
     ) noexcept override
     {
         const auto written = ring_.write(input, frames);
-        dropped_.fetch_add(frames - written, std::memory_order_relaxed);
+        if (written != frames) {
+            dropped_.fetch_add(
+                frames - written, std::memory_order_relaxed
+            );
+            overflow_events_.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    [[nodiscard]] std::uint64_t overflow_events() const noexcept
+    {
+        return overflow_events_.load(std::memory_order_relaxed);
     }
 
     [[nodiscard]] std::uint64_t dropped() const noexcept
@@ -58,6 +68,7 @@ public:
 private:
     grafite::io::AudioRingBuffer& ring_;
     std::atomic<std::uint64_t> dropped_{0};
+    std::atomic<std::uint64_t> overflow_events_{0};
 };
 
 }  // namespace
@@ -117,6 +128,16 @@ int main()
         input.stop();
 
         std::cout << "Input frames dropped: " << sink.dropped()
+                  << "\nInput overflow callbacks: "
+                  << sink.overflow_events()
+                  << "\nPlayback underflow events: "
+                  << source.underflow_events()
+                  << "\nPlayback underflow frames: "
+                  << source.underflow_frames()
+                  << "\nPlayback recovery events: "
+                  << source.recovery_events()
+                  << "\nPeak observed FIFO frames: "
+                  << source.peak_occupancy()
                   << "\nRemaining FIFO frames: "
                   << ring.available_read() << '\n';
     } catch (const std::exception& error) {
