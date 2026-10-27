@@ -22,6 +22,28 @@
 
 namespace {
 
+class MultichannelProcessor final : public grafite::io::AudioProcessor {
+public:
+    void process(
+        std::span<const grafite::ConstAudioBufferView>,
+        std::span<grafite::AudioBufferView> outputs,
+        grafite::FrameCount frames
+    ) noexcept override
+    {
+        assert(outputs.size() == 1);
+        assert(outputs[0].channels() == 3);
+        for (grafite::ChannelCount ch = 0; ch < 3; ++ch) {
+            for (grafite::FrameCount i = 0; i < frames; ++i) {
+                outputs[0](ch, i) = static_cast<float>(
+                    100 * ch + position + i
+                );
+            }
+        }
+        position += frames;
+    }
+    grafite::FrameCount position = 0;
+};
+
 class TestProcessor final : public grafite::io::AudioProcessor {
 public:
     void process(
@@ -78,4 +100,26 @@ int main()
     );
     assert(!invalid.render(left.data(), right.data(), 3));
     assert(processor.calls == 3);
+
+    MultichannelProcessor multichannel;
+    grafite::AudioBuffer multi_scratch(3, 2);
+    grafite::io::PlanarOutputRenderer multi_renderer(
+        multichannel, multi_scratch
+    );
+    std::array<float, 5> a{};
+    std::array<float, 5> b{};
+    std::array<float, 5> c{};
+    std::array<float*, 3> channels{a.data(), b.data(), c.data()};
+    assert(multi_renderer.render(channels, 5));
+    assert(multichannel.position == 5);
+    for (std::size_t i = 0; i < 5; ++i) {
+        assert(a[i] == static_cast<float>(i));
+        assert(b[i] == static_cast<float>(100 + i));
+        assert(c[i] == static_cast<float>(200 + i));
+    }
+    std::array<float*, 2> wrong_count{a.data(), b.data()};
+    assert(!multi_renderer.render(wrong_count, 5));
+    std::array<float*, 3> duplicate{a.data(), b.data(), a.data()};
+    assert(!multi_renderer.render(duplicate, 5));
+    assert(multichannel.position == 5);
 }
