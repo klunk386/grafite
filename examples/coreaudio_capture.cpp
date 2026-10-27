@@ -13,7 +13,9 @@
 // GNU Lesser General Public License. See the LICENSE file for details.
 // =============================================================================
 
+#include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <chrono>
 #include <cmath>
 #include <exception>
