@@ -17,6 +17,8 @@
 #define GRAFITE_IO_RING_BUFFER_PLAYBACK_PROCESSOR_HPP
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <array>
 #include <cmath>
 #include <stdexcept>
@@ -54,6 +56,28 @@ public:
         }
     }
 
+    /// Cumulative diagnostics; snapshots can change while audio is running.
+    /// Startup silence is excluded from underflow accounting.
+    [[nodiscard]] std::uint64_t underflow_events() const noexcept
+    {
+        return underflow_events_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] std::uint64_t underflow_frames() const noexcept
+    {
+        return underflow_frames_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] std::uint64_t recovery_events() const noexcept
+    {
+        return recovery_events_.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] FrameCount peak_occupancy() const noexcept
+    {
+        return peak_occupancy_.load(std::memory_order_relaxed);
+    }
+
     void process(
         std::span<const ConstAudioBufferView>,
         std::span<AudioBufferView> outputs,
@@ -65,12 +89,31 @@ public:
             return;
         }
         auto output = outputs[0];
+        // The observation is advisory: producer and consumer advance
+        // independently. It is not an instantaneous high-water mark.
+        const auto occupancy = ring_.available_read();
+        auto peak = peak_occupancy_.load(std::memory_order_relaxed);
+        while (occupancy > peak &&
+               !peak_occupancy_.compare_exchange_weak(
+                   peak, occupancy, std::memory_order_relaxed
+               )) {
+        }
+
+        std::uint64_t missing = 0;
         for (FrameCount i = 0; i < frames; ++i) {
             float value = 0.0F;
             if (!active_) {
                 if (ring_.available_read() >= startup_frames_) {
                     active_ = take(current_) && take(next_);
                     phase_ = 0.0;
+                    if (active_ && has_started_) {
+                        recovery_events_.fetch_add(
+                            1, std::memory_order_relaxed
+                        );
+                    }
+                    if (active_) {
+                        has_started_ = true;
+                    }
                 }
             }
             if (active_) {
@@ -79,6 +122,9 @@ public:
                     current_ = next_;
                     if (!take(next_)) {
                         active_ = false;
+                        underflow_events_.fetch_add(
+                            1, std::memory_order_relaxed
+                        );
                         break;
                     }
                     phase_ -= 1.0;
@@ -90,8 +136,16 @@ public:
                     phase_ += step_;
                 }
             }
+            if (!active_ && has_started_) {
+                ++missing;
+            }
             output(0, i) = value;
             output(1, i) = value;
+        }
+        if (missing != 0) {
+            underflow_frames_.fetch_add(
+                missing, std::memory_order_relaxed
+            );
         }
     }
 
@@ -115,6 +169,11 @@ private:
     float current_ = 0.0F;
     float next_ = 0.0F;
     bool active_ = false;
+    bool has_started_ = false;
+    std::atomic<std::uint64_t> underflow_events_{0};
+    std::atomic<std::uint64_t> underflow_frames_{0};
+    std::atomic<std::uint64_t> recovery_events_{0};
+    std::atomic<FrameCount> peak_occupancy_{0};
 };
 
 }  // namespace grafite::io
