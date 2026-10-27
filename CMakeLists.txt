@@ -305,6 +305,18 @@ if(APPLE AND GRAFITE_BUILD_COREAUDIO AND GRAFITE_BUILD_EXAMPLES)
         examples/coreaudio_sine.cpp
     )
 
+    add_executable(
+        grafite_coreaudio_devices
+        examples/coreaudio_devices.cpp
+    )
+
+    target_link_libraries(
+        grafite_coreaudio_devices
+        PRIVATE
+            grafite_core
+            "-framework CoreAudio"
+    )
+
     target_link_libraries(
         grafite_coreaudio_sine
         PRIVATE
