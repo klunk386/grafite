@@ -280,6 +280,22 @@ if(GRAFITE_BUILD_TESTS)
     )
 
     add_executable(
+        test_channel_routing
+        tests/io/test_channel_routing.cpp
+    )
+
+    target_link_libraries(
+        test_channel_routing
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME channel_routing
+        COMMAND test_channel_routing
+    )
+
+    add_executable(
         test_ring_buffer_playback_processor
         tests/io/test_ring_buffer_playback_processor.cpp
     )
