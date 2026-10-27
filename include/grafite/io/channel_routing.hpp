@@ -58,6 +58,7 @@ public:
     }
 
     /// Routes a single frame, without allocation.
+    /// Views and frame indices must match the validated configuration.
     void route(
         ConstAudioBufferView source,
         AudioBufferView output,
