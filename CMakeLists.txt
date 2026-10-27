@@ -264,6 +264,22 @@ if(GRAFITE_BUILD_TESTS)
     )
 
     add_executable(
+        test_linear_resampler
+        tests/io/test_linear_resampler.cpp
+    )
+
+    target_link_libraries(
+        test_linear_resampler
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME linear_resampler
+        COMMAND test_linear_resampler
+    )
+
+    add_executable(
         test_ring_buffer_playback_processor
         tests/io/test_ring_buffer_playback_processor.cpp
     )
