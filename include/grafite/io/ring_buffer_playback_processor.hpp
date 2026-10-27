@@ -25,11 +25,12 @@
 
 #include "grafite/io/audio_processor.hpp"
 #include "grafite/io/audio_ring_buffer.hpp"
+#include "grafite/io/channel_routing.hpp"
 #include "grafite/io/linear_resampler.hpp"
 
 namespace grafite::io {
 
-/// Experimental mono FIFO -> stereo playback with nominal linear resampling.
+/// Experimental mono FIFO playback with configurable channel duplication.
 ///
 /// Single consumer only. Output is silent until the FIFO reaches the startup
 /// threshold. No drift correction: separate hardware clocks will eventually
@@ -42,18 +43,21 @@ public:
         double input_rate,
         double output_rate,
         FrameCount startup_frames,
-        float gain = 0.02F
+        float gain = 0.02F,
+        ChannelRouting routing = ChannelRouting({0, 0})
     )
         : ring_(ring),
           resampler_(input_rate, output_rate),
           startup_frames_(startup_frames),
-          gain_(gain)
+          gain_(gain),
+          routing_(std::move(routing))
     {
         if (ring.channels() != 1 ||
             startup_frames < 2 || startup_frames > ring.capacity() ||
             !std::isfinite(gain) || gain < 0.0F || gain > 1.0F) {
             throw std::invalid_argument("Invalid ring playback configuration");
         }
+        routing_.validate(ring.channels());
     }
 
     /// Cumulative diagnostics; snapshots can change while audio is running.
@@ -84,7 +88,7 @@ public:
         FrameCount frames
     ) noexcept override
     {
-        if (outputs.size() != 1 || outputs[0].channels() != 2 ||
+        if (outputs.size() != 1 || outputs[0].channels() != routing_.output_channels() ||
             outputs[0].frames() < frames) {
             return;
         }
@@ -137,8 +141,8 @@ public:
             if (!active_ && has_started_) {
                 ++missing;
             }
-            output(0, i) = value;
-            output(1, i) = value;
+            const ConstAudioBufferView source(&value, 1, 1, 1);
+            routing_.route(source, output, 0, i);
         }
         if (missing != 0) {
             underflow_frames_.fetch_add(
@@ -163,6 +167,7 @@ private:
     LinearResampler resampler_;
     FrameCount startup_frames_;
     float gain_;
+    ChannelRouting routing_;
     float current_ = 0.0F;
     float next_ = 0.0F;
     bool active_ = false;
