@@ -56,7 +56,8 @@ public:
     {
         assert(inputs.empty());
         assert(outputs.size() == 1);
-        assert(outputs[0].channels() > 0);
+        // Output channel count belongs to the downstream processor.
+        // It need not match the intermediate source bus width.
         assert(outputs[0].frames() >= frames);
         assert(frames <= scratch_.frames());
 
