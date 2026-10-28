@@ -20,11 +20,14 @@
 #include <atomic>
 #include <cstdint>
 #include <cmath>
+#include <optional>
+#include <utility>
 #include <stdexcept>
 
 #include "grafite/io/audio_processor.hpp"
 #include "grafite/io/audio_ring_buffer.hpp"
 #include "grafite/io/channel_routing.hpp"
+#include "grafite/io/fifo_drift_controller.hpp"
 #include "grafite/io/multichannel_linear_resampler.hpp"
 
 namespace grafite::io {
@@ -32,8 +35,8 @@ namespace grafite::io {
 /// Experimental multichannel FIFO playback with configurable channel routing.
 ///
 /// Single consumer only. Output is silent until the FIFO reaches the startup
-/// threshold. No drift correction: separate hardware clocks will eventually
-/// produce overrun/underrun. This is a diagnostic, not a production SRC.
+/// threshold. Optional bounded FIFO feedback compensates small clock drift.
+/// This diagnostic linear SRC is not a production band-limited converter.
 /// All buffers and state are preallocated; process() is real-time safe.
 class RingBufferPlaybackProcessor final : public AudioProcessor {
 public:
@@ -43,7 +46,8 @@ public:
         double output_rate,
         FrameCount startup_frames,
         float gain = 0.02F,
-        ChannelRouting routing = ChannelRouting({0, 0})
+        ChannelRouting routing = ChannelRouting({0, 0}),
+        std::optional<FifoDriftController> drift = std::nullopt
     )
         : ring_(ring),
           resampler_(ring.channels(), input_rate, output_rate),
@@ -52,13 +56,17 @@ public:
           rendered_(ring.channels(), 1),
           startup_frames_(startup_frames),
           gain_(gain),
-          routing_(std::move(routing))
+          routing_(std::move(routing)),
+          drift_(std::move(drift))
     {
         if (startup_frames < 2 || startup_frames > ring.capacity() ||
             !std::isfinite(gain) || gain < 0.0F || gain > 1.0F) {
             throw std::invalid_argument("Invalid ring playback configuration");
         }
         routing_.validate(ring.channels());
+        if (drift_ && drift_->nominal_ratio() != resampler_.ratio()) {
+            throw std::invalid_argument("Mismatched nominal SRC ratio");
+        }
     }
 
     /// Cumulative diagnostics; snapshots can change while audio is running.
@@ -81,6 +89,12 @@ public:
     [[nodiscard]] FrameCount peak_occupancy() const noexcept
     {
         return peak_occupancy_.load(std::memory_order_relaxed);
+    }
+
+    /// Latest bounded correction; zero when drift control is disabled.
+    [[nodiscard]] double drift_correction_ppm() const noexcept
+    {
+        return drift_ ? drift_->correction_ppm() : 0.0;
     }
 
     void process(
@@ -108,6 +122,15 @@ public:
                )) {
         }
 
+        // Sample once per callback, not once per output frame. This
+        // avoids responding to individual FIFO reads as clock drift.
+        if (drift_ && active_) {
+            const bool accepted = resampler_.set_ratio(
+                drift_->update(occupancy)
+            );
+            (void)accepted;  // Configuration guarantees a valid ratio.
+        }
+
         std::uint64_t missing = 0;
         for (FrameCount i = 0; i < frames; ++i) {
             if (!active_ && ring_.available_read() >= startup_frames_) {
@@ -115,6 +138,13 @@ public:
                           take(second_.view());
                 if (active_) {
                     resampler_.reset(first_.view(), second_.view());
+                    if (drift_) {
+                        drift_->reset();
+                        const bool accepted = resampler_.set_ratio(
+                            drift_->nominal_ratio()
+                        );
+                        (void)accepted;
+                    }
                     if (has_started_) {
                         recovery_events_.fetch_add(
                             1, std::memory_order_relaxed
@@ -134,6 +164,9 @@ public:
                 );
                 if (!produced) {
                     active_ = false;
+                    if (drift_) {
+                        drift_->reset();
+                    }
                     underflow_events_.fetch_add(
                         1, std::memory_order_relaxed
                     );
@@ -172,6 +205,7 @@ private:
     FrameCount startup_frames_;
     float gain_;
     ChannelRouting routing_;
+    std::optional<FifoDriftController> drift_;
     bool active_ = false;
     bool has_started_ = false;
     std::atomic<std::uint64_t> underflow_events_{0};
