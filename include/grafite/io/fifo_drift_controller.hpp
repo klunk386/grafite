@@ -29,7 +29,8 @@ namespace grafite::io {
 /// Occupancy above target increases source consumption per output frame.
 /// update() is allocation-free and must run on the audio consumer thread.
 /// Optional exponential smoothing reduces callback-level FIFO jitter.
-/// The smoothing factor is per update, not normalized to elapsed time.
+/// The legacy update() uses a per-call alpha. The timed overload uses
+/// a physical time constant when configured, independent of block size.
 class FifoDriftController {
 public:
     FifoDriftController(
@@ -37,13 +38,15 @@ public:
         FrameCount target_frames,
         double max_correction_ppm = 200.0,
         double proportional_ppm_per_frame = 0.01,
-        double occupancy_alpha = 1.0
+        double occupancy_alpha = 1.0,
+        double smoothing_seconds = 0.0
     )
         : nominal_ratio_(nominal_ratio),
           target_frames_(target_frames),
           max_correction_ppm_(max_correction_ppm),
           proportional_ppm_per_frame_(proportional_ppm_per_frame),
-          occupancy_alpha_(occupancy_alpha)
+          occupancy_alpha_(occupancy_alpha),
+          smoothing_seconds_(smoothing_seconds)
     {
         if (!std::isfinite(nominal_ratio) || nominal_ratio <= 0.0 ||
             nominal_ratio > 16.0 || target_frames == 0 ||
@@ -53,6 +56,7 @@ public:
             proportional_ppm_per_frame <= 0.0 ||
             !std::isfinite(occupancy_alpha) ||
             occupancy_alpha <= 0.0 || occupancy_alpha > 1.0 ||
+            !std::isfinite(smoothing_seconds) || smoothing_seconds < 0.0 ||
             nominal_ratio * (1.0 + max_correction_ppm * 1e-6) > 16.0) {
             throw std::invalid_argument("Invalid FIFO drift controller");
         }
@@ -61,12 +65,36 @@ public:
     /// Computes source frames per output frame from a FIFO snapshot.
     [[nodiscard]] double update(FrameCount occupancy) noexcept
     {
+        return apply(occupancy, occupancy_alpha_);
+    }
+
+    /// Timed update; dt is the duration of the completed output callback.
+    /// When tau is zero, the legacy per-call smoothing is retained.
+    [[nodiscard]] double update(
+        FrameCount occupancy, double elapsed_seconds
+    ) noexcept
+    {
+        if (smoothing_seconds_ == 0.0) {
+            return update(occupancy);
+        }
+        if (!std::isfinite(elapsed_seconds) || elapsed_seconds <= 0.0) {
+            return nominal_ratio_ * (1.0 + correction_ppm_ * 1e-6);
+        }
+        const double alpha = -std::expm1(
+            -elapsed_seconds / smoothing_seconds_
+        );
+        return apply(occupancy, alpha);
+    }
+
+private:
+    [[nodiscard]] double apply(FrameCount occupancy, double alpha) noexcept
+    {
         const double observed = static_cast<double>(occupancy);
         if (!initialized_) {
             filtered_occupancy_ = observed;
             initialized_ = true;
         } else {
-            filtered_occupancy_ += occupancy_alpha_ *
+            filtered_occupancy_ += alpha *
                                    (observed - filtered_occupancy_);
         }
         const double error = filtered_occupancy_ -
@@ -78,6 +106,7 @@ public:
         return nominal_ratio_ * (1.0 + correction_ppm_ * 1e-6);
     }
 
+public:
     /// Disables the correction without changing the nominal ratio.
     void reset() noexcept
     {
@@ -112,6 +141,7 @@ private:
     double max_correction_ppm_;
     double proportional_ppm_per_frame_;
     double occupancy_alpha_;
+    double smoothing_seconds_;
     double correction_ppm_ = 0.0;
     double filtered_occupancy_ = 0.0;
     bool initialized_ = false;
