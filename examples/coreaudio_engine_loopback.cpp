@@ -15,6 +15,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <cstdint>
 #include <exception>
 #include <iomanip>
@@ -36,6 +39,31 @@
 #include "wav_gain_processor.hpp"
 
 namespace {
+
+// Monitoring is performed exclusively on the control thread.
+struct RunningStats {
+    std::uint64_t count = 0;
+    double mean = 0.0;
+    double m2 = 0.0;
+    double minimum = std::numeric_limits<double>::infinity();
+    double maximum = -std::numeric_limits<double>::infinity();
+
+    void add(double value) noexcept
+    {
+        ++count;
+        const double delta = value - mean;
+        mean += delta / static_cast<double>(count);
+        m2 += delta * (value - mean);
+        minimum = std::min(minimum, value);
+        maximum = std::max(maximum, value);
+    }
+
+    [[nodiscard]] double standard_deviation() const noexcept
+    {
+        return count > 1 ? std::sqrt(m2 / static_cast<double>(count - 1))
+                         : 0.0;
+    }
+};
 
 class CaptureSink final : public grafite::io::AudioInputSink {
 public:
@@ -158,12 +186,24 @@ int main(int argc, char* argv[])
                       << "underflow_events,underflow_frames,"
                       << "recovery_events,drift_ppm\n";
         }
-        for (int second = 1; second <= duration_seconds; ++second) {
+        // Sample both modes at the same cadence. Ignore the first five
+        // seconds in aggregate statistics to exclude startup transients.
+        RunningStats occupancy_stats;
+        RunningStats ppm_stats;
+        constexpr int samples_per_second = 50;
+        const int total_samples = duration_seconds * samples_per_second;
+        for (int sample = 1; sample <= total_samples; ++sample) {
             std::this_thread::sleep_until(
-                started + std::chrono::seconds(second)
+                started + std::chrono::milliseconds(sample * 20)
             );
-            if (monitor) {
-                const auto occupancy = ring.available_read();
+            const auto occupancy = ring.available_read();
+            const double ppm = source.drift_correction_ppm();
+            if (sample > 5 * samples_per_second) {
+                occupancy_stats.add(static_cast<double>(occupancy));
+                ppm_stats.add(ppm);
+            }
+            if (monitor && sample % samples_per_second == 0) {
+                const int second = sample / samples_per_second;
                 std::cout << second << ',' << occupancy << ','
                           << std::fixed << std::setprecision(3)
                           << (1000.0 * static_cast<double>(occupancy) /
@@ -173,11 +213,35 @@ int main(int argc, char* argv[])
                           << source.underflow_events() << ','
                           << source.underflow_frames() << ','
                           << source.recovery_events() << ','
-                          << source.drift_correction_ppm() << '\n';
+                          << ppm << '\\n';
             }
         }
-        output.stop();
+        // Capture the operational snapshot before either backend stops.
+        const auto running_occupancy = ring.available_read();
+        const auto running_ppm = source.drift_correction_ppm();
         input.stop();
+        output.stop();
+
+        std::cout << std::fixed << std::setprecision(3)
+                  << "Mode: "
+                  << (compensate_drift ? "adaptive" : "fixed")
+                  << "\\nMonitoring samples (after 5 s): "
+                  << occupancy_stats.count
+                  << "\\nFIFO mean (frames): " << occupancy_stats.mean
+                  << "\\nFIFO stddev (frames): "
+                  << occupancy_stats.standard_deviation()
+                  << "\\nFIFO min/max (frames): "
+                  << occupancy_stats.minimum << " / "
+                  << occupancy_stats.maximum
+                  << "\\nDrift mean (ppm): " << ppm_stats.mean
+                  << "\\nDrift stddev (ppm): "
+                  << ppm_stats.standard_deviation()
+                  << "\\nDrift min/max (ppm): "
+                  << ppm_stats.minimum << " / " << ppm_stats.maximum
+                  << "\\nRunning FIFO snapshot (frames): "
+                  << running_occupancy
+                  << "\\nRunning drift snapshot (ppm): "
+                  << running_ppm << '\\n';
 
         std::cout << "Input frames dropped: " << sink.dropped()
                   << "\nInput overflow callbacks: "
