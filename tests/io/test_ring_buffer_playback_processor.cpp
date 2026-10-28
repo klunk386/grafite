@@ -116,6 +116,25 @@ int main()
     assert(stereo_output(1, 0) == 4.0F);
     assert(stereo_processor.underflow_events() == 0);
 
+    // A zero-frame callback must not alter playback diagnostics.
+    const auto peak_before = stereo_processor.peak_occupancy();
+    const auto missing_before = stereo_processor.underflow_frames();
+    stereo_processor.process({}, stereo_views, 0);
+    assert(stereo_processor.peak_occupancy() == peak_before);
+    assert(stereo_processor.underflow_frames() == missing_before);
+
+    // Stereo underflow and recovery must affect both channels together.
+    stereo_processor.process({}, stereo_views, 2);
+    assert(stereo_processor.underflow_events() == 1);
+    assert(stereo_processor.underflow_frames() > 0);
+    assert(stereo_ring.write(stereo_source.view(), 8) == 8);
+    stereo_processor.process({}, stereo_views, 2);
+    assert(stereo_processor.recovery_events() == 1);
+    assert(stereo_output(0, 0) == 100.0F);
+    assert(stereo_output(1, 0) == 0.0F);
+    assert(stereo_output(0, 1) == 102.0F);
+    assert(stereo_output(1, 1) == 2.0F);
+
     // Below startup threshold, output remains silent.
     grafite::io::AudioRingBuffer empty(1, 16);
     grafite::io::RingBufferPlaybackProcessor waiting(
