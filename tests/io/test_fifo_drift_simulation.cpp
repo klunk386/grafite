@@ -13,6 +13,7 @@
 // GNU Lesser General Public License. See the LICENSE file for details.
 // =============================================================================
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 
