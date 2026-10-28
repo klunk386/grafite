@@ -41,7 +41,7 @@ int main()
     assert(controller.update(0) < nominal);
     assert(controller.correction_ppm() == -200.0);
     assert(std::abs(controller.update(4800) - nominal) < 1e-12);
-    controller.update(4900);
+    assert(controller.update(4900) > nominal);
     controller.reset();
     assert(controller.correction_ppm() == 0.0);
 
