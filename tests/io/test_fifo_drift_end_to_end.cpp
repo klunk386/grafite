@@ -70,6 +70,10 @@ Result simulate(double clock_ppm, bool adaptive)
         // Different callback sizes with equal long-term output rate.
         const FrameCount frames = (i % 3 == 0) ? 128 :
                                   (i % 3 == 1) ? 256 : 384;
+        // Consume before producing the next callback's input frames.
+        // The controller and final FIFO occupancy now share the same
+        // sampling boundary; no systematic one-block offset is added.
+        processor.process({}, views, frames);
         producer_fraction += static_cast<double>(frames) *
                              (1.0 + clock_ppm * 1e-6);
         auto produced = static_cast<FrameCount>(
@@ -81,7 +85,6 @@ Result simulate(double clock_ppm, bool adaptive)
             assert(ring.write(source.view(), n) == n);
             produced -= n;
         }
-        processor.process({}, views, frames);
         for (FrameCount j = 0; j < frames; ++j) {
             assert(std::abs(output(0, j) - 0.5F) < 1e-6F);
             assert(std::abs(output(1, j) - 0.25F) < 1e-6F);
@@ -103,7 +106,7 @@ void verify(double clock_ppm)
         stderr,
         "clock=%+.0f ppm | fixed error=%+.1f frames | "
         "adaptive error=%+.1f frames | correction=%+.2f ppm | "
-        "underflows=%llu/%llu\\n",
+        "underflows=%llu/%llu\n",
         clock_ppm, fixed.final_error, adaptive.final_error,
         adaptive.correction_ppm,
         static_cast<unsigned long long>(fixed.underflows),
