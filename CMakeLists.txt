@@ -312,6 +312,22 @@ if(GRAFITE_BUILD_TESTS)
     )
 
     add_executable(
+        test_fifo_drift_simulation
+        tests/io/test_fifo_drift_simulation.cpp
+    )
+
+    target_link_libraries(
+        test_fifo_drift_simulation
+        PRIVATE
+            grafite_core
+    )
+
+    add_test(
+        NAME fifo_drift_simulation
+        COMMAND test_fifo_drift_simulation
+    )
+
+    add_executable(
         test_channel_routing
         tests/io/test_channel_routing.cpp
     )
