@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <exception>
 #include <iomanip>
+#include <optional>
 #include <string>
 #include <iostream>
 #include <thread>
@@ -93,8 +94,16 @@ int main(int argc, char* argv[])
 
         grafite::io::AudioRingBuffer ring(1, capacity);
         CaptureSink sink(ring);
+        std::optional<grafite::io::FifoDriftController> drift;
+        if (compensate_drift) {
+            drift.emplace(
+                input_rate / output_rate, startup,
+                300.0, 0.1, 1.0, 0.25
+            );
+        }
         grafite::io::RingBufferPlaybackProcessor source(
-            ring, input_rate, output_rate, startup, 1.0F
+            ring, input_rate, output_rate, startup, 1.0F,
+            grafite::io::ChannelRouting({0, 0}), drift
         );
 
         grafite::Graph graph;
