@@ -95,7 +95,9 @@ public:
     /// Thread-safe snapshot of the last bounded drift correction.
     [[nodiscard]] double drift_correction_ppm() const noexcept
     {
-        return drift_ppm_snapshot_.load(std::memory_order_relaxed);
+        return static_cast<double>(
+            drift_millippm_snapshot_.load(std::memory_order_relaxed)
+        ) * 0.001;
     }
 
     void process(
@@ -132,8 +134,11 @@ public:
                 )
             );
             (void)accepted;  // Configuration guarantees a valid ratio.
-            drift_ppm_snapshot_.store(
-                drift_->correction_ppm(), std::memory_order_relaxed
+            drift_millippm_snapshot_.store(
+                static_cast<std::int32_t>(
+                    std::round(drift_->correction_ppm() * 1000.0)
+                ),
+                std::memory_order_relaxed
             );
         }
 
@@ -150,7 +155,7 @@ public:
                             drift_->nominal_ratio()
                         );
                         (void)accepted;
-                        drift_ppm_snapshot_.store(
+                        drift_millippm_snapshot_.store(
                             0.0, std::memory_order_relaxed
                         );
                     }
@@ -175,7 +180,7 @@ public:
                     active_ = false;
                     if (drift_) {
                         drift_->reset();
-                        drift_ppm_snapshot_.store(
+                        drift_millippm_snapshot_.store(
                             0.0, std::memory_order_relaxed
                         );
                     }
@@ -225,7 +230,7 @@ private:
     std::atomic<std::uint64_t> underflow_frames_{0};
     std::atomic<std::uint64_t> recovery_events_{0};
     std::atomic<FrameCount> peak_occupancy_{0};
-    std::atomic<double> drift_ppm_snapshot_{0.0};
+    std::atomic<std::int32_t> drift_millippm_snapshot_{0};
 };
 
 }  // namespace grafite::io
