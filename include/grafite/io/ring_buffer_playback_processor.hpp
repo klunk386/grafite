@@ -89,8 +89,12 @@ public:
         FrameCount frames
     ) noexcept override
     {
-        if (outputs.size() != 1 || outputs[0].channels() != routing_.output_channels() ||
+        if (outputs.size() != 1 ||
+            outputs[0].channels() != routing_.output_channels() ||
             outputs[0].frames() < frames) {
+            return;
+        }
+        if (frames == 0) {
             return;
         }
         auto output = outputs[0];
