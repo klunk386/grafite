@@ -55,6 +55,7 @@ public:
           second_(ring.channels(), 1),
           rendered_(ring.channels(), 1),
           startup_frames_(startup_frames),
+          output_rate_(output_rate),
           gain_(gain),
           routing_(std::move(routing)),
           drift_(std::move(drift))
@@ -126,7 +127,9 @@ public:
         // avoids responding to individual FIFO reads as clock drift.
         if (drift_ && active_) {
             const bool accepted = resampler_.set_ratio(
-                drift_->update(occupancy)
+                drift_->update(
+                    occupancy, static_cast<double>(frames) / output_rate_
+                )
             );
             (void)accepted;  // Configuration guarantees a valid ratio.
         }
@@ -203,6 +206,7 @@ private:
     AudioBuffer second_;
     AudioBuffer rendered_;
     FrameCount startup_frames_;
+    double output_rate_;
     float gain_;
     ChannelRouting routing_;
     std::optional<FifoDriftController> drift_;
