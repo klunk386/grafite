@@ -156,7 +156,7 @@ public:
                         );
                         (void)accepted;
                         drift_millippm_snapshot_.store(
-                            0.0, std::memory_order_relaxed
+                            0, std::memory_order_relaxed
                         );
                     }
                     if (has_started_) {
@@ -181,7 +181,7 @@ public:
                     if (drift_) {
                         drift_->reset();
                         drift_millippm_snapshot_.store(
-                            0.0, std::memory_order_relaxed
+                            0, std::memory_order_relaxed
                         );
                     }
                     underflow_events_.fetch_add(
