@@ -92,10 +92,10 @@ public:
         return peak_occupancy_.load(std::memory_order_relaxed);
     }
 
-    /// Latest bounded correction; zero when drift control is disabled.
+    /// Thread-safe snapshot of the last bounded drift correction.
     [[nodiscard]] double drift_correction_ppm() const noexcept
     {
-        return drift_ ? drift_->correction_ppm() : 0.0;
+        return drift_ppm_snapshot_.load(std::memory_order_relaxed);
     }
 
     void process(
@@ -132,6 +132,9 @@ public:
                 )
             );
             (void)accepted;  // Configuration guarantees a valid ratio.
+            drift_ppm_snapshot_.store(
+                drift_->correction_ppm(), std::memory_order_relaxed
+            );
         }
 
         std::uint64_t missing = 0;
@@ -147,6 +150,9 @@ public:
                             drift_->nominal_ratio()
                         );
                         (void)accepted;
+                        drift_ppm_snapshot_.store(
+                            0.0, std::memory_order_relaxed
+                        );
                     }
                     if (has_started_) {
                         recovery_events_.fetch_add(
@@ -169,6 +175,9 @@ public:
                     active_ = false;
                     if (drift_) {
                         drift_->reset();
+                        drift_ppm_snapshot_.store(
+                            0.0, std::memory_order_relaxed
+                        );
                     }
                     underflow_events_.fetch_add(
                         1, std::memory_order_relaxed
@@ -216,6 +225,7 @@ private:
     std::atomic<std::uint64_t> underflow_frames_{0};
     std::atomic<std::uint64_t> recovery_events_{0};
     std::atomic<FrameCount> peak_occupancy_{0};
+    std::atomic<double> drift_ppm_snapshot_{0.0};
 };
 
 }  // namespace grafite::io
