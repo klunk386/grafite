@@ -45,6 +45,22 @@ int main()
     controller.reset();
     assert(controller.correction_ppm() == 0.0);
 
+    // EWMA initialization uses the first observation, without ramp-up.
+    FifoDriftController smoothed(1.0, 100, 200.0, 1.0, 0.25);
+    assert(smoothed.update(100) == 1.0);
+    assert(smoothed.filtered_occupancy() == 100.0);
+    assert(smoothed.update(140) > 1.0);
+    assert(smoothed.filtered_occupancy() == 110.0);
+    assert(smoothed.correction_ppm() == 10.0);
+    assert(smoothed.update(100) > 1.0);
+    assert(smoothed.filtered_occupancy() == 107.5);
+    assert(smoothed.correction_ppm() == 7.5);
+    smoothed.reset();
+    assert(smoothed.filtered_occupancy() == 0.0);
+    assert(smoothed.update(80) < 1.0);
+    assert(smoothed.filtered_occupancy() == 80.0);
+    assert(smoothed.correction_ppm() == -20.0);
+
     bool rejected = false;
     try {
         FifoDriftController invalid(0.0, 4800);
@@ -64,6 +80,21 @@ int main()
         FifoDriftController invalid(
             std::numeric_limits<double>::quiet_NaN(), 4800
         );
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    assert(rejected);
+
+    rejected = false;
+    try {
+        FifoDriftController invalid(1.0, 100, 200.0, 1.0, 0.0);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    assert(rejected);
+    rejected = false;
+    try {
+        FifoDriftController invalid(1.0, 100, 200.0, 1.0, 1.5);
     } catch (const std::invalid_argument&) {
         rejected = true;
     }
