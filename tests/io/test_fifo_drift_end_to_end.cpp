@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <optional>
 
 #include "grafite/io/audio_ring_buffer.hpp"
@@ -98,6 +99,16 @@ void verify(double clock_ppm)
 {
     const auto fixed = simulate(clock_ppm, false);
     const auto adaptive = simulate(clock_ppm, true);
+    std::fprintf(
+        stderr,
+        "clock=%+.0f ppm | fixed error=%+.1f frames | "
+        "adaptive error=%+.1f frames | correction=%+.2f ppm | "
+        "underflows=%llu/%llu\\n",
+        clock_ppm, fixed.final_error, adaptive.final_error,
+        adaptive.correction_ppm,
+        static_cast<unsigned long long>(fixed.underflows),
+        static_cast<unsigned long long>(adaptive.underflows)
+    );
     assert(fixed.underflows == 0);
     assert(adaptive.underflows == 0);
     assert(std::abs(fixed.final_error) > 250.0);
