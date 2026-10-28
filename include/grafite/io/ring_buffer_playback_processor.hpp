@@ -19,18 +19,17 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
-#include <array>
 #include <cmath>
 #include <stdexcept>
 
 #include "grafite/io/audio_processor.hpp"
 #include "grafite/io/audio_ring_buffer.hpp"
 #include "grafite/io/channel_routing.hpp"
-#include "grafite/io/linear_resampler.hpp"
+#include "grafite/io/multichannel_linear_resampler.hpp"
 
 namespace grafite::io {
 
-/// Experimental mono FIFO playback with configurable channel duplication.
+/// Experimental multichannel FIFO playback with configurable channel routing.
 ///
 /// Single consumer only. Output is silent until the FIFO reaches the startup
 /// threshold. No drift correction: separate hardware clocks will eventually
@@ -47,13 +46,15 @@ public:
         ChannelRouting routing = ChannelRouting({0, 0})
     )
         : ring_(ring),
-          resampler_(input_rate, output_rate),
+          resampler_(ring.channels(), input_rate, output_rate),
+          first_(ring.channels(), 1),
+          second_(ring.channels(), 1),
+          rendered_(ring.channels(), 1),
           startup_frames_(startup_frames),
           gain_(gain),
           routing_(std::move(routing))
     {
-        if (ring.channels() != 1 ||
-            startup_frames < 2 || startup_frames > ring.capacity() ||
+        if (startup_frames < 2 || startup_frames > ring.capacity() ||
             !std::isfinite(gain) || gain < 0.0F || gain > 1.0F) {
             throw std::invalid_argument("Invalid ring playback configuration");
         }
@@ -105,44 +106,46 @@ public:
 
         std::uint64_t missing = 0;
         for (FrameCount i = 0; i < frames; ++i) {
-            float value = 0.0F;
-            if (!active_) {
-                if (ring_.available_read() >= startup_frames_) {
-                    active_ = take(current_) && take(next_);
-                    if (active_) {
-                        resampler_.reset(current_, next_);
-                    }
-                    if (active_ && has_started_) {
+            if (!active_ && ring_.available_read() >= startup_frames_) {
+                active_ = take(first_.view()) &&
+                          take(second_.view());
+                if (active_) {
+                    resampler_.reset(first_.view(), second_.view());
+                    if (has_started_) {
                         recovery_events_.fetch_add(
                             1, std::memory_order_relaxed
                         );
                     }
-                    if (active_) {
-                        has_started_ = true;
-                    }
+                    has_started_ = true;
                 }
             }
+
+            bool produced = false;
             if (active_) {
-                if (!resampler_.render(
-                        [this](Sample& sample) noexcept {
-                            return take(sample);
-                        },
-                        value
-                    )) {
+                produced = resampler_.render(
+                    [this](AudioBufferView frame) noexcept {
+                        return take(frame);
+                    },
+                    rendered_.view()
+                );
+                if (!produced) {
                     active_ = false;
                     underflow_events_.fetch_add(
                         1, std::memory_order_relaxed
                     );
-                    value = 0.0F;
-                } else {
-                    value *= gain_;
                 }
             }
-            if (!active_ && has_started_) {
-                ++missing;
+            if (!produced) {
+                rendered_.clear();
+                if (has_started_) {
+                    ++missing;
+                }
+            } else {
+                for (ChannelCount ch = 0; ch < rendered_.channels(); ++ch) {
+                    rendered_(ch, 0) *= gain_;
+                }
             }
-            const ConstAudioBufferView source(&value, 1, 1, 1);
-            routing_.route(source, output, 0, i);
+            routing_.route(rendered_.view(), output, 0, i);
         }
         if (missing != 0) {
             underflow_frames_.fetch_add(
@@ -152,24 +155,19 @@ public:
     }
 
 private:
-    bool take(float& value) noexcept
+    bool take(AudioBufferView frame) noexcept
     {
-        std::array<float, 1> sample{};
-        AudioBufferView view(sample.data(), 1, 1, 1);
-        if (ring_.read(view, 1) != 1) {
-            return false;
-        }
-        value = sample[0];
-        return true;
+        return ring_.read(frame, 1) == 1;
     }
 
     AudioRingBuffer& ring_;
-    LinearResampler resampler_;
+    MultichannelLinearResampler resampler_;
+    AudioBuffer first_;
+    AudioBuffer second_;
+    AudioBuffer rendered_;
     FrameCount startup_frames_;
     float gain_;
     ChannelRouting routing_;
-    float current_ = 0.0F;
-    float next_ = 0.0F;
     bool active_ = false;
     bool has_started_ = false;
     std::atomic<std::uint64_t> underflow_events_{0};
