@@ -79,12 +79,20 @@ private:
 int main(int argc, char* argv[])
 {
     try {
-        if (argc > 2 || (argc == 2 &&
-            std::string(argv[1]) != "--monitor")) {
-            std::cerr << "Usage: " << argv[0] << " [--monitor]\n";
-            return 2;
+        bool monitor = false;
+        bool compensate_drift = false;
+        for (int i = 1; i < argc; ++i) {
+            const std::string arg(argv[i]);
+            if (arg == "--monitor") {
+                monitor = true;
+            } else if (arg == "--drift") {
+                compensate_drift = true;
+            } else {
+                std::cerr << "Usage: " << argv[0]
+                          << " [--monitor] [--drift]\\n";
+                return 2;
+            }
         }
-        const bool monitor = argc == 2;
         const int duration_seconds = monitor ? 60 : 5;
         constexpr double input_rate = 48000.0;
         constexpr double output_rate = 44100.0;
@@ -137,7 +145,9 @@ int main(int argc, char* argv[])
         );
 
         std::cout << "Mic -> FIFO -> resampler -> Engine/GainNode -> "
-                  << "speakers (" << duration_seconds << " seconds).\n"
+                  << "speakers (" << duration_seconds << " seconds, "
+                  << (compensate_drift ? "drift enabled" : "fixed SRC")
+                  << ").\n"
                   << "CAUTION: reduce speaker volume to prevent feedback.\n";
         input.start();
         output.start();
@@ -146,7 +156,7 @@ int main(int argc, char* argv[])
             std::cout << "sec,occupancy_frames,occupancy_ms,"
                       << "dropped_frames,overflow_callbacks,"
                       << "underflow_events,underflow_frames,"
-                      << "recovery_events\n";
+                      << "recovery_events,drift_ppm\n";
         }
         for (int second = 1; second <= duration_seconds; ++second) {
             std::this_thread::sleep_until(
@@ -162,7 +172,8 @@ int main(int argc, char* argv[])
                           << sink.overflow_events() << ','
                           << source.underflow_events() << ','
                           << source.underflow_frames() << ','
-                          << source.recovery_events() << '\n';
+                          << source.recovery_events() << ','
+                          << source.drift_correction_ppm() << '\n';
             }
         }
         output.stop();
@@ -179,6 +190,8 @@ int main(int argc, char* argv[])
                   << source.recovery_events()
                   << "\nPeak observed FIFO frames: "
                   << source.peak_occupancy()
+                  << "\nFinal drift correction (ppm): "
+                  << source.drift_correction_ppm()
                   << "\nRemaining FIFO frames: "
                   << ring.available_read() << '\n';
     } catch (const std::exception& error) {
