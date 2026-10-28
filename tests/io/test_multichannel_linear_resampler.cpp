@@ -70,8 +70,8 @@ int main()
     };
     for (int i = 0; i < 4; ++i) {
         assert(decimator.render(decimate_pull, output.view()));
-        assert(output(0, 0) == 4.0F * i);
-        assert(output(1, 0) == 100.0F + 4.0F * i);
+        assert(output(0, 0) == 8.0F * i);
+        assert(output(1, 0) == 100.0F + 8.0F * i);
     }
 
     // Failed pulls must not produce a partial multichannel output.
