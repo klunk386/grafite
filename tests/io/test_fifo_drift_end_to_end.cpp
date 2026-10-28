@@ -13,7 +13,9 @@
 // GNU Lesser General Public License. See the LICENSE file for details.
 // =============================================================================
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cassert>
 #include <cmath>
 #include <optional>
