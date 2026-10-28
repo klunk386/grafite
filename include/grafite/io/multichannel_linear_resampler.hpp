@@ -56,6 +56,19 @@ public:
         return step_;
     }
 
+    /// Updates source frames per output frame without resetting phase.
+    ///
+    /// Call only from the processing thread. Rejects invalid ratios and
+    /// leaves the previous ratio unchanged. No allocation or locking.
+    [[nodiscard]] bool set_ratio(double ratio) noexcept
+    {
+        if (!std::isfinite(ratio) || ratio <= 0.0 || ratio > 16.0) {
+            return false;
+        }
+        step_ = ratio;
+        return true;
+    }
+
     /// Seeds the interpolation window using two complete source frames.
     void reset(
         ConstAudioBufferView first, ConstAudioBufferView second
