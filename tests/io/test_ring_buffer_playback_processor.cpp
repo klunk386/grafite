@@ -16,6 +16,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <stdexcept>
 
 #include "grafite/io/audio_ring_buffer.hpp"
 #include "grafite/io/ring_buffer_playback_processor.hpp"
@@ -134,6 +135,40 @@ int main()
     assert(stereo_output(1, 0) == 0.0F);
     assert(stereo_output(0, 1) == 102.0F);
     assert(stereo_output(1, 1) == 2.0F);
+
+    // Optional feedback is inactive by default and updates per callback.
+    grafite::io::AudioRingBuffer drift_ring(1, 64);
+    grafite::AudioBuffer drift_source(1, 32);
+    for (std::size_t i = 0; i < 32; ++i) {
+        drift_source(0, i) = static_cast<float>(i);
+    }
+    assert(drift_ring.write(drift_source.view(), 32) == 32);
+    grafite::io::RingBufferPlaybackProcessor drift_processor(
+        drift_ring, 48000.0, 48000.0, 4, 1.0F,
+        grafite::io::ChannelRouting({0}),
+        grafite::io::FifoDriftController(1.0, 8, 200.0, 10.0)
+    );
+    assert(drift_processor.drift_correction_ppm() == 0.0);
+    drift_processor.process({}, mono_views, 1);
+    assert(drift_processor.drift_correction_ppm() == 0.0);
+    assert(mono_output(0, 0) == 0.0F);
+    drift_processor.process({}, mono_views, 1);
+    assert(drift_processor.drift_correction_ppm() == 200.0);
+    assert(mono_output(0, 0) == 1.0F);
+    assert(drift_processor.underflow_events() == 0);
+    assert(processor.drift_correction_ppm() == 0.0);
+
+    bool mismatch_rejected = false;
+    try {
+        grafite::io::RingBufferPlaybackProcessor invalid_drift(
+            drift_ring, 48000.0, 48000.0, 4, 1.0F,
+            grafite::io::ChannelRouting({0}),
+            grafite::io::FifoDriftController(2.0, 8)
+        );
+    } catch (const std::invalid_argument&) {
+        mismatch_rejected = true;
+    }
+    assert(mismatch_rejected);
 
     // Below startup threshold, output remains silent.
     grafite::io::AudioRingBuffer empty(1, 16);
