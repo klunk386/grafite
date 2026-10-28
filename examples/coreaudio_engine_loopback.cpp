@@ -89,7 +89,7 @@ int main(int argc, char* argv[])
                 compensate_drift = true;
             } else {
                 std::cerr << "Usage: " << argv[0]
-                          << " [--monitor] [--drift]\\n";
+                          << " [--monitor] [--drift]\n";
                 return 2;
             }
         }
