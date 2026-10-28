@@ -61,6 +61,26 @@ int main()
     assert(smoothed.filtered_occupancy() == 80.0);
     assert(smoothed.correction_ppm() == -20.0);
 
+    // Equivalent elapsed time gives the same EWMA for different blocks.
+    FifoDriftController timed_a(1.0, 100, 200.0, 1.0, 1.0, 0.1);
+    FifoDriftController timed_b(1.0, 100, 200.0, 1.0, 1.0, 0.1);
+    assert(timed_a.update(100, 0.01) == 1.0);
+    assert(timed_b.update(100, 0.01) == 1.0);
+    assert(timed_a.update(200, 0.02) > 1.0);
+    assert(timed_b.update(200, 0.01) > 1.0);
+    assert(timed_b.update(200, 0.01) > 1.0);
+    assert(std::abs(
+        timed_a.filtered_occupancy() -
+        timed_b.filtered_occupancy()
+    ) < 1e-12);
+    const double unchanged = timed_a.filtered_occupancy();
+    assert(timed_a.update(0, 0.0) > 1.0);
+    assert(timed_a.filtered_occupancy() == unchanged);
+    assert(timed_a.update(
+        0, std::numeric_limits<double>::quiet_NaN()
+    ) > 1.0);
+    assert(timed_a.filtered_occupancy() == unchanged);
+
     bool rejected = false;
     try {
         FifoDriftController invalid(0.0, 4800);
@@ -95,6 +115,13 @@ int main()
     rejected = false;
     try {
         FifoDriftController invalid(1.0, 100, 200.0, 1.0, 1.5);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    assert(rejected);
+    rejected = false;
+    try {
+        FifoDriftController invalid(1.0, 100, 200.0, 1.0, 1.0, -0.1);
     } catch (const std::invalid_argument&) {
         rejected = true;
     }
