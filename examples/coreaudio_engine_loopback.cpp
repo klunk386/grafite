@@ -213,7 +213,7 @@ int main(int argc, char* argv[])
                           << source.underflow_events() << ','
                           << source.underflow_frames() << ','
                           << source.recovery_events() << ','
-                          << ppm << '\\n';
+                          << ppm << '\n';
             }
         }
         // Capture the operational snapshot before either backend stops.
@@ -225,23 +225,23 @@ int main(int argc, char* argv[])
         std::cout << std::fixed << std::setprecision(3)
                   << "Mode: "
                   << (compensate_drift ? "adaptive" : "fixed")
-                  << "\\nMonitoring samples (after 5 s): "
+                  << "\nMonitoring samples (after 5 s): "
                   << occupancy_stats.count
-                  << "\\nFIFO mean (frames): " << occupancy_stats.mean
-                  << "\\nFIFO stddev (frames): "
+                  << "\nFIFO mean (frames): " << occupancy_stats.mean
+                  << "\nFIFO stddev (frames): "
                   << occupancy_stats.standard_deviation()
-                  << "\\nFIFO min/max (frames): "
+                  << "\nFIFO min/max (frames): "
                   << occupancy_stats.minimum << " / "
                   << occupancy_stats.maximum
-                  << "\\nDrift mean (ppm): " << ppm_stats.mean
-                  << "\\nDrift stddev (ppm): "
+                  << "\nDrift mean (ppm): " << ppm_stats.mean
+                  << "\nDrift stddev (ppm): "
                   << ppm_stats.standard_deviation()
-                  << "\\nDrift min/max (ppm): "
+                  << "\nDrift min/max (ppm): "
                   << ppm_stats.minimum << " / " << ppm_stats.maximum
-                  << "\\nRunning FIFO snapshot (frames): "
+                  << "\nRunning FIFO snapshot (frames): "
                   << running_occupancy
-                  << "\\nRunning drift snapshot (ppm): "
-                  << running_ppm << '\\n';
+                  << "\nRunning drift snapshot (ppm): "
+                  << running_ppm << '\n';
 
         std::cout << "Input frames dropped: " << sink.dropped()
                   << "\nInput overflow callbacks: "
