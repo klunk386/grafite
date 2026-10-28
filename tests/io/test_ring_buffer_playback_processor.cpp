@@ -89,6 +89,33 @@ int main()
         }
     }
 
+    // Two independent source channels retain alignment through SRC.
+    grafite::io::AudioRingBuffer stereo_ring(2, 16);
+    grafite::AudioBuffer stereo_source(2, 8);
+    for (std::size_t i = 0; i < 8; ++i) {
+        stereo_source(0, i) = static_cast<float>(i);
+        stereo_source(1, i) = 100.0F + static_cast<float>(i);
+    }
+    assert(stereo_ring.write(stereo_source.view(), 8) == 8);
+    grafite::io::RingBufferPlaybackProcessor stereo_processor(
+        stereo_ring, 48000.0, 24000.0, 4, 1.0F,
+        grafite::io::ChannelRouting({1, 0})
+    );
+    grafite::AudioBuffer stereo_output(2, 2);
+    std::array<grafite::AudioBufferView, 1> stereo_views{
+        stereo_output.view()
+    };
+    stereo_processor.process({}, stereo_views, 2);
+    for (std::size_t i = 0; i < 2; ++i) {
+        assert(stereo_output(0, i) == 100.0F + 2.0F * i);
+        assert(stereo_output(1, i) == 2.0F * i);
+    }
+    // The shared SRC phase continues across variable-sized callbacks.
+    stereo_processor.process({}, stereo_views, 1);
+    assert(stereo_output(0, 0) == 104.0F);
+    assert(stereo_output(1, 0) == 4.0F);
+    assert(stereo_processor.underflow_events() == 0);
+
     // Below startup threshold, output remains silent.
     grafite::io::AudioRingBuffer empty(1, 16);
     grafite::io::RingBufferPlaybackProcessor waiting(
