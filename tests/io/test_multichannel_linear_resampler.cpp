@@ -16,6 +16,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #include "grafite/io/multichannel_linear_resampler.hpp"
@@ -105,6 +106,36 @@ int main()
         assert(std::abs(output(0, 0) - expected) < 1e-4F);
         assert(std::abs(output(1, 0) - (100.0F + expected)) < 1e-4F);
     }
+
+    // Updating the ratio preserves the existing interpolation phase.
+    MultichannelLinearResampler adjustable(2, 48000.0, 48000.0);
+    adjustable.reset(first.view(), second.view());
+    grafite::FrameCount adjustable_index = 2;
+    auto adjustable_pull = [&](grafite::AudioBufferView frame) noexcept {
+        frame(0, 0) = 2.0F * static_cast<float>(adjustable_index);
+        frame(1, 0) = frame(0, 0) + 100.0F;
+        ++adjustable_index;
+        return true;
+    };
+    assert(adjustable.render(adjustable_pull, output.view()));
+    assert(output(0, 0) == 0.0F);
+    assert(adjustable.set_ratio(0.5));
+    assert(adjustable.ratio() == 0.5);
+    assert(adjustable.render(adjustable_pull, output.view()));
+    assert(output(0, 0) == 2.0F);
+    assert(adjustable.render(adjustable_pull, output.view()));
+    assert(output(0, 0) == 3.0F);
+    assert(output(1, 0) == 103.0F);
+    assert(!adjustable.set_ratio(0.0));
+    assert(!adjustable.set_ratio(-1.0));
+    assert(!adjustable.set_ratio(17.0));
+    assert(!adjustable.set_ratio(
+        std::numeric_limits<double>::quiet_NaN()
+    ));
+    assert(!adjustable.set_ratio(
+        std::numeric_limits<double>::infinity()
+    ));
+    assert(adjustable.ratio() == 0.5);
 
     bool rejected = false;
     try {
