@@ -319,6 +319,8 @@ int main(int argc, char* argv[])
         // Capture the operational snapshot before either backend stops.
         const auto running_occupancy = ring.available_read();
         const auto running_ppm = source.drift_correction_ppm();
+        const auto input_diagnostics = input.diagnostics();
+        const auto output_diagnostics = output.diagnostics();
         input.stop();
         output.stop();
 
@@ -348,7 +350,27 @@ int main(int argc, char* argv[])
                   << "\nRunning drift snapshot (ppm): "
                   << running_ppm << '\n';
 
-        std::cout << "Input frames dropped: " << sink.dropped()
+        std::cout << "Capture callbacks: "
+                  << input_diagnostics.callbacks
+                  << "\nCaptured frames: "
+                  << input_diagnostics.frames
+                  << "\nCapture render errors: "
+                  << input_diagnostics.render_errors
+                  << "\nMaximum capture callback gap (ms): "
+                  << (static_cast<double>(
+                          input_diagnostics.maximum_callback_gap_ns
+                      ) / 1e6)
+                  << "\nOutput callbacks: "
+                  << output_diagnostics.callbacks
+                  << "\nOutput requested frames: "
+                  << output_diagnostics.requested_frames
+                  << "\nInvalid output callbacks: "
+                  << output_diagnostics.invalid_output_callbacks
+                  << "\nMaximum output callback gap (ms): "
+                  << (static_cast<double>(
+                          output_diagnostics.maximum_callback_gap_ns
+                      ) / 1e6)
+                  << "\nInput frames dropped: " << sink.dropped()
                   << "\nInput overflow callbacks: "
                   << sink.overflow_events()
                   << "\nPlayback underflow events: "
