@@ -19,6 +19,7 @@
 #ifdef __APPLE__
 
 #include <AudioToolbox/AudioToolbox.h>
+#include <CoreAudio/HostTime.h>
 #include <CoreAudio/CoreAudio.h>
 
 #include <algorithm>
