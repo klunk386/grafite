@@ -151,9 +151,9 @@ int main(int argc, char* argv[])
                 char* end = nullptr;
                 errno = 0;
                 const long parsed = std::strtol(value.c_str(), &end, 10);
-                if (errno != 0 || end == value.c_str() || *end != '\\0' ||
+                if (errno != 0 || end == value.c_str() || *end != '\0' ||
                     parsed < 1 || parsed > 3600) {
-                    std::cerr << "Invalid value for " << arg << '\\n';
+                    std::cerr << "Invalid value for " << arg << '\n';
                     return 2;
                 }
                 if (arg == "--duration") {
@@ -166,12 +166,16 @@ int main(int argc, char* argv[])
                 std::cerr << "Usage: " << argv[0]
                           << " [--monitor] [--drift]"
                           << " [--duration 1..3600]"
-                          << " [--window 1..3600]\\n";
+                          << " [--window 1..3600]\n";
                 return 2;
             }
         }
         if (!duration_given && !monitor) {
             duration_seconds = 5;
+        }
+        if (duration_seconds <= 5) {
+            std::cerr << "Duration must exceed the 5-second warmup.\n";
+            return 2;
         }
         if (window_seconds > duration_seconds) {
             window_seconds = duration_seconds;
@@ -248,11 +252,11 @@ int main(int argc, char* argv[])
         RunningStats window_ppm;
         LinearTrend occupancy_trend;
         if (monitor) {
-            std::cout << "window_start_s,window_end_s,"
+            std::cout << "window,window_start_s,window_end_s,"
                       << "fifo_mean_frames,fifo_stddev_frames,"
                       << "fifo_min_frames,fifo_max_frames,"
                       << "drift_mean_ppm,drift_stddev_ppm,"
-                      << "drift_min_ppm,drift_max_ppm\\n";
+                      << "drift_min_ppm,drift_max_ppm\n";
         }
         constexpr int samples_per_second = 50;
         const int total_samples = duration_seconds * samples_per_second;
@@ -293,7 +297,7 @@ int main(int argc, char* argv[])
                               << ',' << window_ppm.mean
                               << ',' << window_ppm.standard_deviation()
                               << ',' << window_ppm.minimum
-                              << ',' << window_ppm.maximum << '\\n';
+                              << ',' << window_ppm.maximum << '\n';
                 }
                 window_occupancy = {};
                 window_ppm = {};
