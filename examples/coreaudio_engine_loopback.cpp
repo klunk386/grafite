@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <cstdlib>
+#include <cerrno>
 #include <cstdint>
 #include <exception>
 #include <iomanip>
@@ -65,6 +67,31 @@ struct RunningStats {
     }
 };
 
+// Ordinary least-squares trend of window means, control thread only.
+struct LinearTrend {
+    std::uint64_t count = 0;
+    double mean_time = 0.0;
+    double mean_value = 0.0;
+    double covariance = 0.0;
+    double time_variance = 0.0;
+
+    void add(double time, double value) noexcept
+    {
+        ++count;
+        const double dt = time - mean_time;
+        mean_time += dt / static_cast<double>(count);
+        const double dv = value - mean_value;
+        mean_value += dv / static_cast<double>(count);
+        covariance += dt * (value - mean_value);
+        time_variance += dt * (time - mean_time);
+    }
+
+    [[nodiscard]] double slope() const noexcept
+    {
+        return time_variance > 0.0 ? covariance / time_variance : 0.0;
+    }
+};
+
 class CaptureSink final : public grafite::io::AudioInputSink {
 public:
     explicit CaptureSink(grafite::io::AudioRingBuffer& ring)
@@ -109,19 +136,46 @@ int main(int argc, char* argv[])
     try {
         bool monitor = false;
         bool compensate_drift = false;
+        int duration_seconds = 60;
+        int window_seconds = 10;
+        bool duration_given = false;
         for (int i = 1; i < argc; ++i) {
             const std::string arg(argv[i]);
             if (arg == "--monitor") {
                 monitor = true;
             } else if (arg == "--drift") {
                 compensate_drift = true;
+            } else if ((arg == "--duration" || arg == "--window") &&
+                       i + 1 < argc) {
+                const std::string value(argv[++i]);
+                char* end = nullptr;
+                errno = 0;
+                const long parsed = std::strtol(value.c_str(), &end, 10);
+                if (errno != 0 || end == value.c_str() || *end != '\\0' ||
+                    parsed < 1 || parsed > 3600) {
+                    std::cerr << "Invalid value for " << arg << '\\n';
+                    return 2;
+                }
+                if (arg == "--duration") {
+                    duration_seconds = static_cast<int>(parsed);
+                    duration_given = true;
+                } else {
+                    window_seconds = static_cast<int>(parsed);
+                }
             } else {
                 std::cerr << "Usage: " << argv[0]
-                          << " [--monitor] [--drift]\n";
+                          << " [--monitor] [--drift]"
+                          << " [--duration 1..3600]"
+                          << " [--window 1..3600]\\n";
                 return 2;
             }
         }
-        const int duration_seconds = monitor ? 60 : 5;
+        if (!duration_given && !monitor) {
+            duration_seconds = 5;
+        }
+        if (window_seconds > duration_seconds) {
+            window_seconds = duration_seconds;
+        }
         constexpr double input_rate = 48000.0;
         constexpr double output_rate = 44100.0;
         constexpr grafite::FrameCount block_size = 512;
@@ -190,6 +244,16 @@ int main(int argc, char* argv[])
         // seconds in aggregate statistics to exclude startup transients.
         RunningStats occupancy_stats;
         RunningStats ppm_stats;
+        RunningStats window_occupancy;
+        RunningStats window_ppm;
+        LinearTrend occupancy_trend;
+        if (monitor) {
+            std::cout << "window_start_s,window_end_s,"
+                      << "fifo_mean_frames,fifo_stddev_frames,"
+                      << "fifo_min_frames,fifo_max_frames,"
+                      << "drift_mean_ppm,drift_stddev_ppm,"
+                      << "drift_min_ppm,drift_max_ppm\\n";
+        }
         constexpr int samples_per_second = 50;
         const int total_samples = duration_seconds * samples_per_second;
         for (int sample = 1; sample <= total_samples; ++sample) {
@@ -201,6 +265,38 @@ int main(int argc, char* argv[])
             if (sample > 5 * samples_per_second) {
                 occupancy_stats.add(static_cast<double>(occupancy));
                 ppm_stats.add(ppm);
+                window_occupancy.add(static_cast<double>(occupancy));
+                window_ppm.add(ppm);
+            }
+            const bool window_end =
+                sample % (window_seconds * samples_per_second) == 0 ||
+                sample == total_samples;
+            if (window_end && window_occupancy.count > 0) {
+                const double end_seconds =
+                    static_cast<double>(sample) / samples_per_second;
+                const double start_seconds = std::max(
+                    5.0, end_seconds -
+                    static_cast<double>(window_occupancy.count) /
+                        samples_per_second
+                );
+                occupancy_trend.add(
+                    0.5 * (start_seconds + end_seconds),
+                    window_occupancy.mean
+                );
+                if (monitor) {
+                    std::cout << "window," << start_seconds << ','
+                              << end_seconds << ','
+                              << window_occupancy.mean << ','
+                              << window_occupancy.standard_deviation()
+                              << ',' << window_occupancy.minimum
+                              << ',' << window_occupancy.maximum
+                              << ',' << window_ppm.mean
+                              << ',' << window_ppm.standard_deviation()
+                              << ',' << window_ppm.minimum
+                              << ',' << window_ppm.maximum << '\\n';
+                }
+                window_occupancy = {};
+                window_ppm = {};
             }
             if (monitor && sample % samples_per_second == 0) {
                 const int second = sample / samples_per_second;
@@ -238,6 +334,11 @@ int main(int argc, char* argv[])
                   << ppm_stats.standard_deviation()
                   << "\nDrift min/max (ppm): "
                   << ppm_stats.minimum << " / " << ppm_stats.maximum
+                  << "\nFIFO trend (frames/s): "
+                  << occupancy_trend.slope()
+                  << "\nFIFO trend (ppm at input rate): "
+                  << (occupancy_trend.slope() * 1e6 / input_rate)
+                  << "\nTrend windows: " << occupancy_trend.count
                   << "\nRunning FIFO snapshot (frames): "
                   << running_occupancy
                   << "\nRunning drift snapshot (ppm): "
