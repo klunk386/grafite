@@ -22,6 +22,7 @@
 #include <CoreAudio/CoreAudio.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -174,9 +175,27 @@ public:
         }
     }
 
+    struct Diagnostics {
+        std::uint64_t callbacks;
+        std::uint64_t frames;
+        std::uint64_t render_errors;
+        std::uint64_t maximum_callback_gap_ns;
+    };
+
+    [[nodiscard]] Diagnostics diagnostics() const noexcept
+    {
+        return {
+            callback_count_.load(std::memory_order_relaxed),
+            captured_frames_.load(std::memory_order_relaxed),
+            render_errors_.load(std::memory_order_relaxed),
+            maximum_gap_ns_.load(std::memory_order_relaxed)
+        };
+    }
+
     void start()
     {
         if (!running_) {
+            previous_host_time_ = 0;
             check(AudioOutputUnitStart(unit_), "Cannot start HAL input");
             running_ = true;
         }
@@ -208,6 +227,26 @@ private:
     )
     {
         auto& self = *static_cast<CoreAudioInputBackend*>(context);
+        self.callback_count_.fetch_add(1, std::memory_order_relaxed);
+        if (timestamp != nullptr &&
+            (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0) {
+            const auto host_time = timestamp->mHostTime;
+            if (self.previous_host_time_ != 0 &&
+                host_time > self.previous_host_time_) {
+                const auto gap = AudioConvertHostTimeToNanos(
+                    host_time - self.previous_host_time_
+                );
+                auto maximum = self.maximum_gap_ns_.load(
+                    std::memory_order_relaxed
+                );
+                while (gap > maximum &&
+                    !self.maximum_gap_ns_.compare_exchange_weak(
+                        maximum, gap, std::memory_order_relaxed
+                    )) {
+                }
+            }
+            self.previous_host_time_ = host_time;
+        }
         if (frames == 0) {
             return noErr;
         }
@@ -235,8 +274,14 @@ private:
                 self.unit_, flags, &at, 1, count, &list
             );
             if (status != noErr) {
+                self.render_errors_.fetch_add(
+                    1, std::memory_order_relaxed
+                );
                 return status;
             }
+            self.captured_frames_.fetch_add(
+                count, std::memory_order_relaxed
+            );
             self.sink_.process_input(
                 ConstAudioBufferView(self.buffer_.view()), count
             );
@@ -244,6 +289,13 @@ private:
         }
         return noErr;
     }
+
+    std::atomic<std::uint64_t> callback_count_{0};
+    std::atomic<std::uint64_t> captured_frames_{0};
+    std::atomic<std::uint64_t> render_errors_{0};
+    std::atomic<std::uint64_t> maximum_gap_ns_{0};
+    // Accessed only by the serial capture callback, except during start.
+    std::uint64_t previous_host_time_ = 0;
 
     AudioInputSink& sink_;
     AudioBuffer buffer_;
