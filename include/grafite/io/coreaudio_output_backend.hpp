@@ -21,6 +21,7 @@
 #include <AudioToolbox/AudioToolbox.h>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <cstdint>
 #include <cmath>
@@ -162,9 +163,27 @@ public:
         }
     }
 
+    struct Diagnostics {
+        std::uint64_t callbacks;
+        std::uint64_t requested_frames;
+        std::uint64_t maximum_callback_gap_ns;
+        std::uint64_t invalid_output_callbacks;
+    };
+
+    [[nodiscard]] Diagnostics diagnostics() const noexcept
+    {
+        return {
+            callback_count_.load(std::memory_order_relaxed),
+            requested_frames_.load(std::memory_order_relaxed),
+            maximum_gap_ns_.load(std::memory_order_relaxed),
+            invalid_output_callbacks_.load(std::memory_order_relaxed)
+        };
+    }
+
     void start()
     {
         if (!running_) {
+            previous_host_time_ = 0;
             check(AudioOutputUnitStart(unit_), "Cannot start CoreAudio");
             running_ = true;
         }
@@ -190,14 +209,38 @@ private:
     static OSStatus render(
         void* context,
         AudioUnitRenderActionFlags*,
-        const AudioTimeStamp*,
+        const AudioTimeStamp* timestamp,
         UInt32,
         UInt32 frames,
         AudioBufferList* data
     )
     {
         auto& self = *static_cast<CoreAudioOutputBackend*>(context);
+        self.callback_count_.fetch_add(1, std::memory_order_relaxed);
+        self.requested_frames_.fetch_add(frames, std::memory_order_relaxed);
+        if (timestamp != nullptr &&
+            (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0) {
+            const auto host_time = timestamp->mHostTime;
+            if (self.previous_host_time_ != 0 &&
+                host_time > self.previous_host_time_) {
+                const auto gap = AudioConvertHostTimeToNanos(
+                    host_time - self.previous_host_time_
+                );
+                auto maximum = self.maximum_gap_ns_.load(
+                    std::memory_order_relaxed
+                );
+                while (gap > maximum &&
+                    !self.maximum_gap_ns_.compare_exchange_weak(
+                        maximum, gap, std::memory_order_relaxed
+                    )) {
+                }
+            }
+            self.previous_host_time_ = host_time;
+        }
         if (data == nullptr) {
+            self.invalid_output_callbacks_.fetch_add(
+                1, std::memory_order_relaxed
+            );
             return noErr;
         }
 
@@ -217,12 +260,18 @@ private:
         if (data->mNumberBuffers != 2 ||
             data->mBuffers[0].mNumberChannels != 1 ||
             data->mBuffers[1].mNumberChannels != 1) {
+            self.invalid_output_callbacks_.fetch_add(
+                1, std::memory_order_relaxed
+            );
             return noErr;
         }
 
         const auto* const left = data->mBuffers[0].mData;
         const auto* const right = data->mBuffers[1].mData;
         if (left == nullptr || right == nullptr) {
+            self.invalid_output_callbacks_.fetch_add(
+                1, std::memory_order_relaxed
+            );
             return noErr;
         }
 
@@ -230,6 +279,9 @@ private:
                 data->mBuffers[0].mDataByteSize ||
             static_cast<std::uint64_t>(frames) * sizeof(float) >
                 data->mBuffers[1].mDataByteSize) {
+            self.invalid_output_callbacks_.fetch_add(
+                1, std::memory_order_relaxed
+            );
             return noErr;
         }
 
@@ -246,6 +298,13 @@ private:
 
         return noErr;
     }
+
+    std::atomic<std::uint64_t> callback_count_{0};
+    std::atomic<std::uint64_t> requested_frames_{0};
+    std::atomic<std::uint64_t> maximum_gap_ns_{0};
+    std::atomic<std::uint64_t> invalid_output_callbacks_{0};
+    // Accessed only by the serial output callback, except during start.
+    std::uint64_t previous_host_time_ = 0;
 
     AudioProcessor& processor_;
     FrameCount max_block_size_;
